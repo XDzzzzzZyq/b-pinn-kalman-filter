@@ -128,8 +128,9 @@ def train(config, workdir):
 
     # Convert data to JAX arrays and normalize them. Use ._numpy() to avoid copy.
     batch = batch.to(config.device).float()
-    batch = batch.permute(0, 3, 1, 2)
+    #batch = batch.permute(0, 3, 1, 2)
     batch = scaler(batch)
+
     # Execute one training step
     loss = train_step_fn(state, batch)
     if step % config.training.log_freq == 0:
@@ -142,12 +143,14 @@ def train(config, workdir):
 
     # Report the loss on an evaluation dataset periodically
     if step % config.training.eval_freq == 0:
-      eval_batch = eval_iter.next().to(config.device).float()
-      eval_batch = eval_batch.permute(0, 3, 1, 2)
-      eval_batch = scaler(eval_batch)
-      eval_loss = eval_step_fn(state, eval_batch)
-      logging.info("step: %d, eval_loss: %.5e" % (step, eval_loss.item()))
-      writer.add_scalar("eval_loss", eval_loss.item(), step)
+      for _, (eval_batch, _) in enumerate(train_ds):
+        eval_batch = eval_batch.to(config.device).float()
+        # eval_batch = eval_batch.permute(0, 3, 1, 2)
+        eval_batch = scaler(eval_batch)
+        eval_loss = eval_step_fn(state, eval_batch)
+        logging.info("step: %d, eval_loss: %.5e" % (step, eval_loss.item()))
+        writer.add_scalar("eval_loss", eval_loss.item(), step)
+        break
 
     # Save a checkpoint periodically and generate samples if needed
     if step != 0 and step % config.training.snapshot_freq == 0 or step == num_train_steps:

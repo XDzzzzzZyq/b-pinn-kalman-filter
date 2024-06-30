@@ -40,7 +40,7 @@ def get_config():
 
   # model
   model = config.model
-  model.name = 'ncsnpp'
+  model.name = 'ddpm'
   model.scale_by_sigma = False
   model.ema_rate = 0.9999
   model.normalization = 'GroupNorm'

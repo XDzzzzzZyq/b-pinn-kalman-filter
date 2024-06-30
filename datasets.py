@@ -16,8 +16,11 @@
 # pylint: skip-file
 """Return training and evaluation/test datasets from config files."""
 import jax
-import tensorflow as tf
-import tensorflow_datasets as tfds
+import numpy as np
+import torch
+from torch.utils.data import DataLoader
+from torchvision import datasets, transforms
+from torchvision.transforms.functional import InterpolationMode
 
 
 def get_data_scaler(config):
@@ -38,35 +41,28 @@ def get_data_inverse_scaler(config):
     return lambda x: x
 
 
-def crop_resize(image, resolution):
+def central_crop(size):
+  """Crop the center of an image to the given size."""
+  crop_transform = transforms.CenterCrop((size, size))
+  return crop_transform
+
+def crop_resize(shape, resolution):
   """Crop and resize an image to the given resolution."""
-  crop = tf.minimum(tf.shape(image)[0], tf.shape(image)[1])
-  h, w = tf.shape(image)[0], tf.shape(image)[1]
-  image = image[(h - crop) // 2:(h + crop) // 2,
-          (w - crop) // 2:(w + crop) // 2]
-  image = tf.image.resize(
-    image,
+  h, w = shape[0], shape[1]
+  crop = torch.min(h, w)
+  crop_transform = central_crop((crop, crop))
+  resize_transform  = transforms.Resize(
     size=(resolution, resolution),
     antialias=True,
-    method=tf.image.ResizeMethod.BICUBIC)
-  return tf.cast(image, tf.uint8)
+    interpolation=InterpolationMode.BILINEAR)
+  return transforms.Compose([crop_transform, resize_transform])
 
-
-def resize_small(image, resolution):
+def resize_small(resolution):
   """Shrink an image to the given resolution."""
-  h, w = image.shape[0], image.shape[1]
-  ratio = resolution / min(h, w)
-  h = tf.round(h * ratio, tf.int32)
-  w = tf.round(w * ratio, tf.int32)
-  return tf.image.resize(image, [h, w], antialias=True)
-
-
-def central_crop(image, size):
-  """Crop the center of an image to the given size."""
-  top = (image.shape[0] - size) // 2
-  left = (image.shape[1] - size) // 2
-  return tf.image.crop_to_bounding_box(image, top, left, size, size)
-
+  resize_transform  = transforms.Resize(
+    size=(resolution, resolution),
+    antialias=True,)
+  return resize_transform
 
 def get_dataset(config, uniform_dequantization=False, evaluation=False):
   """Create data loaders for training and evaluation.
@@ -87,92 +83,68 @@ def get_dataset(config, uniform_dequantization=False, evaluation=False):
 
   # Reduce this when image resolution is too large and data pointer is stored
   shuffle_buffer_size = 10000
-  prefetch_size = tf.data.experimental.AUTOTUNE
+  #prefetch_size = tf.data.experimental.AUTOTUNE
   num_epochs = None if not evaluation else 1
+  train_dataset = test_dataset = None
 
   # Create dataset builders for each dataset.
   if config.data.dataset == 'CIFAR10':
-    dataset_builder = tfds.builder('cifar10')
-    train_split_name = 'train'
-    eval_split_name = 'test'
+    transform = transforms.Compose([
+      transforms.ToTensor(),
+      transforms.Resize([config.data.image_size, config.data.image_size], antialias=True)])
 
-    def resize_op(img):
-      img = tf.image.convert_image_dtype(img, tf.float32)
-      return tf.image.resize(img, [config.data.image_size, config.data.image_size], antialias=True)
+    train_dataset = datasets.CIFAR10(root='./data', train=True,
+                                                 download=True, transform=transform)
+    test_dataset = datasets.CIFAR10(root='./data', train=False,
+                                                download=True, transform=transform)
 
   elif config.data.dataset == 'SVHN':
-    dataset_builder = tfds.builder('svhn_cropped')
-    train_split_name = 'train'
-    eval_split_name = 'test'
+    transform = transforms.Compose([
+      transforms.ToTensor(),
+      transforms.Resize([config.data.image_size, config.data.image_size], antialias=True)])
 
-    def resize_op(img):
-      img = tf.image.convert_image_dtype(img, tf.float32)
-      return tf.image.resize(img, [config.data.image_size, config.data.image_size], antialias=True)
+    train_dataset = datasets.SVHN(root='./data', split='train',
+                                     download=True, transform=transform)
+    test_dataset = datasets.SVHN(root='./data', split='test',
+                                    download=True, transform=transform)
+
 
   elif config.data.dataset == 'CELEBA':
-    dataset_builder = tfds.builder('celeb_a')
-    train_split_name = 'train'
-    eval_split_name = 'validation'
+    transform = transforms.Compose([
+      transforms.ToTensor(),
+      central_crop(140),
+      transforms.Resize([config.data.image_size, config.data.image_size], antialias=True)])
 
-    def resize_op(img):
-      img = tf.image.convert_image_dtype(img, tf.float32)
-      img = central_crop(img, 140)
-      img = resize_small(img, config.data.image_size)
-      return img
+    train_dataset = datasets.CelebA(root='./data', split='train',
+                                     download=True, transform=transform)
+    test_dataset = datasets.CelebA(root='./data', split='test',
+                                    download=True, transform=transform)
 
   elif config.data.dataset == 'LSUN':
-    dataset_builder = tfds.builder(f'lsun/{config.data.category}')
-    train_split_name = 'train'
-    eval_split_name = 'validation'
-
     if config.data.image_size == 128:
-      def resize_op(img):
-        img = tf.image.convert_image_dtype(img, tf.float32)
-        img = resize_small(img, config.data.image_size)
-        img = central_crop(img, config.data.image_size)
-        return img
+      transform = transforms.Compose([
+        transforms.ToTensor(),
+        resize_small(config.data.image_size),
+        central_crop(config.data.image_size)])
 
     else:
-      def resize_op(img):
-        img = crop_resize(img, config.data.image_size)
-        img = tf.image.convert_image_dtype(img, tf.float32)
-        return img
+      transform = transforms.Compose([
+        transforms.ToTensor(),
+        central_crop(config.data.image_size)])
+
+    train_dataset = datasets.LSUN(root='./data', classes=[config.data.category], transform=transform)
+    test_dataset = datasets.LSUN(root='./data', classes=[config.data.category], transform=transform)
 
   elif config.data.dataset in ['FFHQ', 'CelebAHQ']:
-    dataset_builder = tf.data.TFRecordDataset(config.data.tfrecords_path)
-    train_split_name = eval_split_name = 'train'
+    raise NotImplementedError("no built-in from pytorch")
 
+  elif config.data.dataset == 'NC':
+    pass
   else:
     raise NotImplementedError(
       f'Dataset {config.data.dataset} not yet supported.')
 
-  # Customize preprocess functions for each dataset.
-  if config.data.dataset in ['FFHQ', 'CelebAHQ']:
-    def preprocess_fn(d):
-      sample = tf.io.parse_single_example(d, features={
-        'shape': tf.io.FixedLenFeature([3], tf.int64),
-        'data': tf.io.FixedLenFeature([], tf.string)})
-      data = tf.io.decode_raw(sample['data'], tf.uint8)
-      data = tf.reshape(data, sample['shape'])
-      data = tf.transpose(data, (1, 2, 0))
-      img = tf.image.convert_image_dtype(data, tf.float32)
-      if config.data.random_flip and not evaluation:
-        img = tf.image.random_flip_left_right(img)
-      if uniform_dequantization:
-        img = (tf.random.uniform(img.shape, dtype=tf.float32) + img * 255.) / 256.
-      return dict(image=img, label=None)
-
-  else:
-    def preprocess_fn(d):
-      """Basic preprocessing function scales data to [0, 1) and randomly flips."""
-      img = resize_op(d['image'])
-      if config.data.random_flip and not evaluation:
-        img = tf.image.random_flip_left_right(img)
-      if uniform_dequantization:
-        img = (tf.random.uniform(img.shape, dtype=tf.float32) + img * 255.) / 256.
-
-      return dict(image=img, label=d.get('label', None))
-
+  '''
   def create_dataset(dataset_builder, split):
     dataset_options = tf.data.Options()
     dataset_options.experimental_optimization.map_parallelization = True
@@ -190,7 +162,9 @@ def get_dataset(config, uniform_dequantization=False, evaluation=False):
     ds = ds.map(preprocess_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
     ds = ds.batch(batch_size, drop_remainder=True)
     return ds.prefetch(prefetch_size)
+  '''
 
-  train_ds = create_dataset(dataset_builder, train_split_name)
-  eval_ds = create_dataset(dataset_builder, eval_split_name)
-  return train_ds, eval_ds, dataset_builder
+  train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2)
+  test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=2)
+
+  return train_loader, test_loader

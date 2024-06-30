@@ -18,30 +18,32 @@
 import jax
 import numpy as np
 import six
-import tensorflow as tf
-import tensorflow_gan as tfgan
-import tensorflow_hub as tfhub
+import torch
 
 INCEPTION_TFHUB = 'https://tfhub.dev/tensorflow/tfgan/eval/inception/1'
 INCEPTION_OUTPUT = 'logits'
 INCEPTION_FINAL_POOL = 'pool_3'
 _DEFAULT_DTYPES = {
-  INCEPTION_OUTPUT: tf.float32,
-  INCEPTION_FINAL_POOL: tf.float32
+  INCEPTION_OUTPUT: torch.float32,
+  INCEPTION_FINAL_POOL: torch.float32
 }
 INCEPTION_DEFAULT_IMAGE_SIZE = 299
 
 
 def get_inception_model(inceptionv3=False):
+  '''
   if inceptionv3:
     return tfhub.load(
       'https://tfhub.dev/google/imagenet/inception_v3/feature_vector/4')
   else:
     return tfhub.load(INCEPTION_TFHUB)
+  '''
+  pass
 
 
 def load_dataset_stats(config):
   """Load the pre-computed dataset statistics."""
+  '''
   if config.data.dataset == 'CIFAR10':
     filename = 'assets/stats/cifar10_stats.npz'
   elif config.data.dataset == 'CELEBA':
@@ -54,7 +56,8 @@ def load_dataset_stats(config):
   with tf.io.gfile.GFile(filename, 'rb') as fin:
     stats = np.load(fin)
     return stats
-
+'''
+  pass
 
 def classifier_fn_from_tfhub(output_fields, inception_model,
                              return_tensor=False):
@@ -71,6 +74,8 @@ def classifier_fn_from_tfhub(output_fields, inception_model,
   Returns:
     A one-argument function that takes an image Tensor and returns outputs.
   """
+
+  '''
   if isinstance(output_fields, six.string_types):
     output_fields = [output_fields]
 
@@ -84,14 +89,16 @@ def classifier_fn_from_tfhub(output_fields, inception_model,
     return tf.nest.map_structure(tf.compat.v1.layers.flatten, output)
 
   return _classifier_fn
+  '''
+  pass
 
-
-@tf.function
+#@tf.function
 def run_inception_jit(inputs,
                       inception_model,
                       num_batches=1,
                       inceptionv3=False):
   """Running the inception network. Assuming input is within [0, 255]."""
+  '''
   if not inceptionv3:
     inputs = (tf.cast(inputs, tf.float32) - 127.5) / 127.5
   else:
@@ -102,9 +109,9 @@ def run_inception_jit(inputs,
     num_batches=num_batches,
     classifier_fn=classifier_fn_from_tfhub(None, inception_model),
     dtypes=_DEFAULT_DTYPES)
+  '''
 
-
-@tf.function
+#@tf.function
 def run_inception_distributed(input_tensor,
                               inception_model,
                               num_batches=1,
@@ -121,6 +128,7 @@ def run_inception_distributed(input_tensor,
     A dictionary with key `pool_3` and `logits`, representing the pool_3 and
       logits of the inception network respectively.
   """
+  '''
   num_tpus = jax.local_device_count()
   input_tensors = tf.split(input_tensor, num_tpus, axis=0)
   pool3 = []
@@ -144,3 +152,5 @@ def run_inception_distributed(input_tensor,
       'pool_3': tf.concat(pool3, axis=0),
       'logits': tf.concat(logits, axis=0) if not inceptionv3 else None
     }
+  '''
+  pass

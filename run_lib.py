@@ -117,14 +117,16 @@ def train(config, workdir):
     sampling_fn = sampling.get_sampling_fn(config, sde, sampling_shape, inverse_scaler, sampling_eps)
 
   num_train_steps = config.training.n_iters
+  print("num_train_steps", num_train_steps)
 
   # In case there are multiple hosts (e.g., TPU pods), only log to host 0
   logging.info("Starting training loop at step %d." % (initial_step,))
 
-  for batch_idx, (batch, target) in enumerate(train_ds):
-    step = batch_idx + initial_step
-    if step >= num_train_steps + 1:
-      break
+  for step in range(initial_step, num_train_steps+1):
+    try:
+      batch, target = next(train_iter)
+    except StopIteration:
+      train_iter = iter(train_ds)
 
     # Convert data to JAX arrays and normalize them. Use ._numpy() to avoid copy.
     batch = batch.to(config.device).float()
@@ -143,14 +145,16 @@ def train(config, workdir):
 
     # Report the loss on an evaluation dataset periodically
     if step % config.training.eval_freq == 0:
-      for _, (eval_batch, _) in enumerate(train_ds):
-        eval_batch = eval_batch.to(config.device).float()
-        # eval_batch = eval_batch.permute(0, 3, 1, 2)
-        eval_batch = scaler(eval_batch)
-        eval_loss = eval_step_fn(state, eval_batch)
-        logging.info("step: %d, eval_loss: %.5e" % (step, eval_loss.item()))
-        writer.add_scalar("eval_loss", eval_loss.item(), step)
-        break
+      try:
+        eval_batch, _ = next(eval_iter)
+      except StopIteration:
+        eval_iter = iter(eval_ds)
+      eval_batch = eval_batch.to(config.device).float()
+      # eval_batch = eval_batch.permute(0, 3, 1, 2)
+      eval_batch = scaler(eval_batch)
+      eval_loss = eval_step_fn(state, eval_batch)
+      logging.info("step: %d, eval_loss: %.5e" % (step, eval_loss.item()))
+      writer.add_scalar("eval_loss", eval_loss.item(), step)
 
     # Save a checkpoint periodically and generate samples if needed
     if step != 0 and step % config.training.snapshot_freq == 0 or step == num_train_steps:

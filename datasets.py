@@ -18,9 +18,29 @@
 import jax
 import numpy as np
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import Dataset, DataLoader
 from torchvision import datasets, transforms
 from torchvision.transforms.functional import InterpolationMode
+
+
+class CustomDataset(Dataset):
+  def __init__(self, data, split='train', transform=None):
+    self.len = len(data)
+    self.split = split
+    self.data = data
+    self.transform = transform
+
+  def __len__(self):
+    return int(self.len*0.8) if self.split == 'train' else int(self.len*0.2)
+
+  def __getitem__(self, idx):
+    idx = idx if self.split == 'train' else int(self.len*0.8) + idx
+    sample = self.data[idx, 0].data
+
+    if self.transform:
+      sample = self.transform(sample)
+
+    return sample, 0
 
 
 def get_data_scaler(config):
@@ -139,7 +159,19 @@ def get_dataset(config, uniform_dequantization=False, evaluation=False):
     raise NotImplementedError("no built-in from pytorch")
 
   elif config.data.dataset == 'NC':
-    pass
+
+    from netCDF4 import Dataset
+
+    data = Dataset(f'/data1/DATA_PUBLIC/Southern_Ocean/bsose_i122_{config.data.date_range}_{config.data.category}.nc')
+    data = data[config.data.key]
+
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.RandomCrop(config.data.image_size, pad_if_needed=True, padding_mode='constant')])
+
+    train_dataset = CustomDataset(data, split='train', transform=transform)
+    test_dataset = CustomDataset(data, split='test', transform=transform)
+
   else:
     raise NotImplementedError(
       f'Dataset {config.data.dataset} not yet supported.')
@@ -164,7 +196,7 @@ def get_dataset(config, uniform_dequantization=False, evaluation=False):
     return ds.prefetch(prefetch_size)
   '''
 
-  train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2)
-  test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=2)
+  train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
+  test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
 
   return train_loader, test_loader

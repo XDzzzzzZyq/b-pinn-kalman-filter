@@ -38,7 +38,7 @@ from absl import flags
 import torch
 from torch.utils import tensorboard
 from torchvision.utils import make_grid, save_image
-from utils import save_checkpoint, restore_checkpoint
+from utils import save_checkpoint, load_checkpoint, restore_checkpoint
 
 FLAGS = flags.FLAGS
 
@@ -122,7 +122,7 @@ def train(config, workdir):
   # In case there are multiple hosts (e.g., TPU pods), only log to host 0
   logging.info("Starting training loop at step %d." % (initial_step,))
 
-  for step in range(initial_step, num_train_steps+1):
+  for step in range(initial_step, num_train_steps+5):
     try:
       batch, target = next(train_iter)
     except StopIteration:
@@ -161,6 +161,7 @@ def train(config, workdir):
       # Save the checkpoint.
       save_step = step // config.training.snapshot_freq
       save_checkpoint(os.path.join(checkpoint_dir, f'checkpoint_{save_step}.pth'), state)
+      print(f">>> checkpoint_{save_step}.pth saved")
 
       # Generate and save samples
       if config.training.snapshot_sampling:
@@ -178,6 +179,40 @@ def train(config, workdir):
 
         with open(os.path.join(this_sample_dir, "sample.png"), "wb") as fout:
           save_image(image_grid, fout)
+
+
+def sample(config, ckptdir, workdir):
+  scaler = datasets.get_data_scaler(config)
+  inverse_scaler = datasets.get_data_inverse_scaler(config)
+
+  # Setup SDEs
+  if config.training.sde.lower() == 'vpsde':
+    sde = sde_lib.VPSDE(beta_min=config.model.beta_min, beta_max=config.model.beta_max, N=config.model.num_scales)
+    sampling_eps = 1e-3
+  elif config.training.sde.lower() == 'subvpsde':
+    sde = sde_lib.subVPSDE(beta_min=config.model.beta_min, beta_max=config.model.beta_max, N=config.model.num_scales)
+    sampling_eps = 1e-3
+  elif config.training.sde.lower() == 'vesde':
+    sde = sde_lib.VESDE(sigma_min=config.model.sigma_min, sigma_max=config.model.sigma_max, N=config.model.num_scales)
+    sampling_eps = 1e-5
+  else:
+    raise NotImplementedError(f"SDE {config.training.sde} unknown.")
+
+  # Initialize model.
+  score_model = mutils.create_model(config)
+  score_model = load_checkpoint(ckptdir, score_model, config.device)
+
+  sampling_shape = (config.training.batch_size, config.data.num_channels,
+                    config.data.image_size, config.data.image_size)
+  sampling_fn = sampling.get_sampling_fn(config, sde, sampling_shape, inverse_scaler, sampling_eps)
+
+  sample, n = sampling_fn(score_model)
+  os.makedirs(workdir, exist_ok=True)
+  nrow = int(np.sqrt(sample.shape[0]))
+  image_grid = make_grid(sample, nrow, padding=2)
+
+  with open(os.path.join(workdir, "sample.png"), "wb") as fout:
+    save_image(image_grid, fout)
 
 
 def evaluate(config,

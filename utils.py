@@ -17,6 +17,15 @@ def restore_checkpoint(ckpt_dir, state, device):
     state['step'] = loaded_state['step']
     return state
 
+def load_checkpoint(ckpt_dir, model, device):
+  if not os.path.exists(ckpt_dir):
+    logging.warning(f"No checkpoint found at {ckpt_dir}. "
+                    f"Returned the same state as input")
+    return model
+  else:
+    state = torch.load(ckpt_dir, map_location=device)["model"]
+    model.load_state_dict(state)
+    return model
 
 def save_checkpoint(ckpt_dir, state):
   saved_state = {

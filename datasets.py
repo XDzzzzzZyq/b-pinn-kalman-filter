@@ -24,18 +24,19 @@ from torchvision.transforms.functional import InterpolationMode
 
 
 class CustomDataset(Dataset):
-  def __init__(self, data, split='train', transform=None):
+  def __init__(self, data, split='train', transform=None, land_cut=0):
     self.len = len(data)
     self.split = split
     self.data = data
     self.transform = transform
+    self.land_cut = land_cut
 
   def __len__(self):
     return int(self.len*0.8) if self.split == 'train' else int(self.len*0.2)
 
   def __getitem__(self, idx):
     idx = idx if self.split == 'train' else int(self.len*0.8) + idx
-    sample = self.data[idx, 0].data
+    sample = self.data[idx, 0, self.land_cut:].data
 
     if self.transform:
       sample = self.transform(sample)
@@ -169,8 +170,8 @@ def get_dataset(config, uniform_dequantization=False, evaluation=False):
         transforms.ToTensor(),
         transforms.RandomCrop(config.data.image_size, pad_if_needed=True, padding_mode='constant')])
 
-    train_dataset = CustomDataset(data, split='train', transform=transform)
-    test_dataset = CustomDataset(data, split='test', transform=transform)
+    train_dataset = CustomDataset(data, split='train', transform=transform, land_cut=config.data.land_cut)
+    test_dataset = CustomDataset(data, split='test', transform=transform, land_cut=config.data.land_cut)
 
   else:
     raise NotImplementedError(

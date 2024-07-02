@@ -8,7 +8,7 @@ class LinearOperators(ABC):
         self.params = kwargs
 
     @abstractmethod
-    def operate(self, x):
+    def __call__(self, x):
         pass
 
     @abstractmethod
@@ -25,7 +25,7 @@ class LinearOperators(ABC):
 
 
 class ScalerMult(LinearOperators):
-    def operate(self, x):
+    def __call__(self, x):
         return self.params['k'] * x
 
     def to_matrix(self, shape):
@@ -33,7 +33,7 @@ class ScalerMult(LinearOperators):
 
 
 class MatrixMult(LinearOperators):
-    def operate(self, x):
+    def __call__(self, x):
         return self.params['matrix'] & x
 
     def to_matrix(self, shape):
@@ -55,7 +55,7 @@ class GaussianFilter(LinearOperators):
         kernel = gaus.pdf(axis)
         return kernel / kernel.sum()
 
-    def operate(self, x):
+    def __call__(self, x):
         from scipy import signal
 
         kernel = self.get_kernel()
@@ -88,7 +88,7 @@ class GaussianFilter(LinearOperators):
 
 class InpaintOperator(LinearOperators):
 
-    def operate(self, x):
+    def __call__(self, x):
         assert self.params['mask'].shape == x.shape
         return self.params['mask'] * x
 
@@ -97,7 +97,7 @@ class InpaintOperator(LinearOperators):
 
 
 def observe(x, operator: LinearOperators, sigma=1):
-    return operator.operate(x) + np.random.randn(*x.shape) * sigma
+    return operator(x) + np.random.randn(*x.shape) * sigma
 
 
 if __name__ == '__main__':
@@ -114,7 +114,7 @@ if __name__ == '__main__':
 
     k = 3
     operator = GaussianFilter(shape=(k, k), std=k)
-    filtered = operator.operate(data)
+    filtered = operator(data)
 
     axe[1].imshow(filtered)
 
@@ -136,7 +136,7 @@ if __name__ == '__main__':
     axe[0].imshow(mask)
 
     operator = InpaintOperator(mask=mask)
-    masked = operator.operate(data)
+    masked = operator(data)
     axe[1].imshow(masked)
 
     mat = operator.to_matrix(data.shape)

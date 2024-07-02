@@ -35,9 +35,9 @@ def get_config():
 
   # data
   data = config.data
-  data.category = 'Theta'
-  data.key = 'THETA'
-  data.date_range = '2013to2017_1day'
+  data.category = 'Chl'
+  data.key = 'BLGCHL'
+  data.date_range = '2013to2017_5day'
 
   # model
   model = config.model

@@ -48,6 +48,7 @@ def get_default_configs():
   data.category = 'Theta'
   data.key = 'THETA'
   data.date_range = '2013to2017_1day'
+  data.depth = 0
   data.land_cut = 200
 
   # model

@@ -104,25 +104,43 @@ if __name__ == '__main__':
     from matplotlib import pyplot as plt
     from prepocess import *
 
-    w = 50
-    data = load_images_from_folder("../test")
-    data = trim_images(data, 200, 200, 200+w, 200+w)[0][:, :, 0]
+    w = 64
+    data = load_images_from_folder("../assets")
+    data = trim_images(data, 100, 100, 100+w, 100+w)[0][:, :, 0]
     shape = data.shape
 
-    plt.imshow(data)
-    plt.show()
+    fig, axe = plt.subplots(nrows=1, ncols=3, figsize=(40, 20))
+    axe[0].imshow(data)
 
     k = 3
     operator = GaussianFilter(shape=(k, k), std=k)
     filtered = operator.operate(data)
 
-    plt.imshow(filtered)
-    plt.show()
+    axe[1].imshow(filtered)
 
     mat = operator.to_matrix(data.shape)
     print(mat.shape, data.flatten().shape)
     transformed = (mat @ data.flatten()).reshape(w-k+1,w-k+1)
-    plt.imshow(transformed)
+    axe[2].imshow(transformed)
     plt.show()
 
+    from torch.utils.data import DataLoader
+    from torchvision import datasets, transforms
+
+    transform = transforms.Compose([transforms.Resize(w), transforms.ToTensor(), Binarize(0.5, True)])
+    mask_data = datasets.MNIST(root='../assets', train=True, download=True, transform=transform)
+    mask, _ = mask_data[0]
+    mask = mask.squeeze()
+
+    fig, axe = plt.subplots(nrows=1, ncols=3, figsize=(40, 20))
+    axe[0].imshow(mask)
+
+    operator = InpaintOperator(mask=mask)
+    masked = operator.operate(data)
+    axe[1].imshow(masked)
+
+    mat = operator.to_matrix(data.shape)
+    transformed = (mat @ data.flatten()).reshape(data.shape)
+    axe[2].imshow(transformed)
+    plt.show()
     # matrix = operator.to_matrix((data.shape[0], data.shape[1]))

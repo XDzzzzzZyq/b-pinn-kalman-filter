@@ -13,3 +13,16 @@ def load_images_from_folder(folder):
 
 def trim_images(images, ax, ay, bx, by):
     return np.array([img[ax:bx, ay:by] for img in images])
+
+
+class Binarize(object):
+    def __init__(self, threshold=0.5, invert=False):
+        self.threshold = threshold
+        self.invert = invert
+
+    def __call__(self, img):
+        # Binarize the image tensor
+        img = img > self.threshold
+        if self.invert:
+            img = ~img
+        return img.float()

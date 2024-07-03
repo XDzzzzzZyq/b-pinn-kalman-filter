@@ -42,6 +42,20 @@ from utils import save_checkpoint, load_checkpoint, restore_checkpoint
 
 FLAGS = flags.FLAGS
 
+def _get_sde(config):
+  if config.training.sde.lower() == 'vpsde':
+    sde = sde_lib.VPSDE(beta_min=config.model.beta_min, beta_max=config.model.beta_max, N=config.model.num_scales)
+    sampling_eps = 1e-3
+  elif config.training.sde.lower() == 'subvpsde':
+    sde = sde_lib.subVPSDE(beta_min=config.model.beta_min, beta_max=config.model.beta_max, N=config.model.num_scales)
+    sampling_eps = 1e-3
+  elif config.training.sde.lower() == 'vesde':
+    sde = sde_lib.VESDE(sigma_min=config.model.sigma_min, sigma_max=config.model.sigma_max, N=config.model.num_scales)
+    sampling_eps = 1e-5
+  else:
+    raise NotImplementedError(f"SDE {config.training.sde} unknown.")
+
+  return sde, sampling_eps
 
 def train(config, workdir):
   """Runs the training pipeline.
@@ -86,17 +100,7 @@ def train(config, workdir):
   inverse_scaler = datasets.get_data_inverse_scaler(config)
 
   # Setup SDEs
-  if config.training.sde.lower() == 'vpsde':
-    sde = sde_lib.VPSDE(beta_min=config.model.beta_min, beta_max=config.model.beta_max, N=config.model.num_scales)
-    sampling_eps = 1e-3
-  elif config.training.sde.lower() == 'subvpsde':
-    sde = sde_lib.subVPSDE(beta_min=config.model.beta_min, beta_max=config.model.beta_max, N=config.model.num_scales)
-    sampling_eps = 1e-3
-  elif config.training.sde.lower() == 'vesde':
-    sde = sde_lib.VESDE(sigma_min=config.model.sigma_min, sigma_max=config.model.sigma_max, N=config.model.num_scales)
-    sampling_eps = 1e-5
-  else:
-    raise NotImplementedError(f"SDE {config.training.sde} unknown.")
+  sde, sampling_eps = _get_sde(config)
 
   # Build one-step training and evaluation functions
   optimize_fn = losses.optimization_manager(config)
@@ -112,7 +116,7 @@ def train(config, workdir):
 
   # Building sampling functions
   if config.training.snapshot_sampling:
-    sampling_shape = (config.training.batch_size, config.data.num_channels,
+    sampling_shape = (config.training.batch_size//4, config.data.num_channels,
                       config.data.image_size, config.data.image_size)
     sampling_fn = sampling.get_sampling_fn(config, sde, sampling_shape, inverse_scaler, sampling_eps)
 
@@ -122,7 +126,7 @@ def train(config, workdir):
   # In case there are multiple hosts (e.g., TPU pods), only log to host 0
   logging.info("Starting training loop at step %d." % (initial_step,))
 
-  for step in range(initial_step, num_train_steps+5):
+  for step in range(initial_step, num_train_steps+1):
     try:
       batch, target = next(train_iter)
     except StopIteration:
@@ -181,32 +185,27 @@ def train(config, workdir):
           save_image(image_grid, fout)
 
 
-def sample(config, ckptdir, workdir):
+def _sample_fn(config, score_model):
   scaler = datasets.get_data_scaler(config)
   inverse_scaler = datasets.get_data_inverse_scaler(config)
 
   # Setup SDEs
-  if config.training.sde.lower() == 'vpsde':
-    sde = sde_lib.VPSDE(beta_min=config.model.beta_min, beta_max=config.model.beta_max, N=config.model.num_scales)
-    sampling_eps = 1e-3
-  elif config.training.sde.lower() == 'subvpsde':
-    sde = sde_lib.subVPSDE(beta_min=config.model.beta_min, beta_max=config.model.beta_max, N=config.model.num_scales)
-    sampling_eps = 1e-3
-  elif config.training.sde.lower() == 'vesde':
-    sde = sde_lib.VESDE(sigma_min=config.model.sigma_min, sigma_max=config.model.sigma_max, N=config.model.num_scales)
-    sampling_eps = 1e-5
-  else:
-    raise NotImplementedError(f"SDE {config.training.sde} unknown.")
-
-  # Initialize model.
-  score_model = mutils.create_model(config)
-  score_model = load_checkpoint(ckptdir, score_model, config.device)
+  sde, sampling_eps = _get_sde(config)
 
   sampling_shape = (config.training.batch_size, config.data.num_channels,
                     config.data.image_size, config.data.image_size)
   sampling_fn = sampling.get_sampling_fn(config, sde, sampling_shape, inverse_scaler, sampling_eps)
 
   sample, n = sampling_fn(score_model)
+  return sample, n
+
+def sample(config, ckptdir, workdir):
+  # Initialize model.
+  score_model = mutils.create_model(config)
+  score_model = load_checkpoint(ckptdir, score_model, config.device)
+
+  sample, n = _sample_fn(config, score_model)
+
   os.makedirs(workdir, exist_ok=True)
   nrow = int(np.sqrt(sample.shape[0]))
   image_grid = make_grid(sample, nrow, padding=2)

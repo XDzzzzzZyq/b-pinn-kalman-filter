@@ -21,7 +21,41 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import datasets, transforms
 from torchvision.transforms.functional import InterpolationMode
+import os
+import imageio
 
+def load_images_from_folder(folder):
+  images = []
+  for filename in os.listdir(folder):
+    if filename.endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
+      img_path = os.path.join(folder, filename)
+      img = imageio.imread(img_path) / 255.0
+      images.append(img)
+  return images
+
+def trim_images(images, ax, ay, bx, by):
+  return np.array([img[ax:bx, ay:by] for img in images])
+
+class Binarize(object):
+    def __init__(self, threshold=0.5, invert=False):
+      self.threshold = threshold
+      self.invert = invert
+
+    def __call__(self, img):
+      # Binarize the image tensor
+      img = img > self.threshold
+      if self.invert:
+        img = ~img
+      return img.float()
+
+
+class Repeat:
+  def __init__(self, times):
+    self.times = times
+
+  def __call__(self, img):
+    assert img.ndim == 3
+    return img.repeat(self.times, 1, 1, 1)  # Repeat image 'times' times
 
 class CustomDataset(Dataset):
   def __init__(self, data, split='train', transform=None, land_cut=0):
@@ -201,3 +235,13 @@ def get_dataset(config, uniform_dequantization=False, evaluation=False):
   test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
 
   return train_loader, test_loader
+
+def get_mask_dataset(config):
+  transform = transforms.Compose([transforms.Resize(config.data.image_size),
+                                  transforms.ToTensor(),
+                                  Binarize(0.5, True),
+                                  Repeat(config.training.batch_size)])
+  mask_dataset = datasets.MNIST(root='./data', train=True, download=True, transform=transform)
+
+  mask_loader = DataLoader(mask_dataset, batch_size=1, shuffle=True, num_workers=4)
+  return mask_loader

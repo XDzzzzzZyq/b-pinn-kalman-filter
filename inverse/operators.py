@@ -1,18 +1,32 @@
 from abc import ABC, abstractmethod
 import numpy as np
+import torch
 
 
 class LinearOperators(ABC):
 
     def __init__(self, **kwargs):
         self.params = kwargs
+        self.A, self.pL, self.T = self._decompose(None)  # A = pL * T
 
     @abstractmethod
-    def __call__(self, x):
+    def __call__(self, x, keep_shape=False):
         pass
 
     @abstractmethod
     def to_matrix(self, shape):
+        pass
+
+    @abstractmethod
+    def _decompose(self, shape):
+        """A = p(\Gamma)T"""
+        """return p(\Gamma), T"""
+        pass
+
+    @abstractmethod
+    def decompose(self, shape):
+        """A = p(\Gamma)T"""
+        """return p(\Gamma), T"""
         pass
 
     def ortho_project(self, data, **kwargs):
@@ -25,7 +39,7 @@ class LinearOperators(ABC):
 
 
 class ScalerMult(LinearOperators):
-    def __call__(self, x):
+    def __call__(self, x, keep_shape=False):
         return self.params['k'] * x
 
     def to_matrix(self, shape):
@@ -33,7 +47,7 @@ class ScalerMult(LinearOperators):
 
 
 class MatrixMult(LinearOperators):
-    def __call__(self, x):
+    def __call__(self, x, keep_shape=False):
         return self.params['matrix'] & x
 
     def to_matrix(self, shape):
@@ -55,7 +69,7 @@ class GaussianFilter(LinearOperators):
         kernel = gaus.pdf(axis)
         return kernel / kernel.sum()
 
-    def __call__(self, x):
+    def __call__(self, x, keep_shape=False):
         from scipy import signal
 
         kernel = self.get_kernel()
@@ -85,15 +99,64 @@ class GaussianFilter(LinearOperators):
 
         return mat
 
+    def decompose(self, shape):
+        pass
+
+def bcmm(m, v):
+    """batched channelled matrix multiplication"""
+    B, C, M, N = m.shape
+    v_ = v.reshape(-1, 1, M)
+    m_ = m.reshape(-1, M, N)
+    return torch.bmm(v_, m_).reshape(B, C, N)
 
 class InpaintOperator(LinearOperators):
 
-    def __call__(self, x):
+    def __call__(self, x, keep_shape=True):
         assert self.params['mask'].shape == x.shape
-        return self.params['mask'] * x
+
+        if keep_shape:
+            return self.params['mask'] * x
+        else:
+            return bcmm(self.pL, x)
+
+    def _get_single_mat(self, mat):
+        return torch.diag(mat.flatten()).to(self.params['mask'].device)
+
+    def _get_single_decomposed_mat(self, mat):
+        return (mat[torch.where(mat.sum(axis=1) == 1)[0]].T,
+                1)
+
+    def _to_matrix(self, shape):
+        if self.params['mask'].ndim == 2:
+            return self._get_single_mat(self.params['mask'])
+        elif self.params['mask'].ndim == 4:
+            N, _, A, B = self.params['mask'].shape
+            mat = torch.zeros((N, A*B, A*B)).to(self.params['mask'].device)
+            for i in range(N):
+                mat[i] = self._get_single_mat(self.params['mask'][i])
+
+            return mat[:,None,:,:]
+        else:
+            raise ValueError('wrong shape')
+    def _decompose(self, shape):
+        mat = self._to_matrix(shape)
+        if self.params['mask'].ndim == 2:
+            return (mat,
+                    *self._get_single_decomposed_mat(mat))
+        elif self.params['mask'].ndim == 4:
+            L = [self._get_single_decomposed_mat(m)[0] for m in mat.squeeze()]
+            return (mat,
+                    torch.stack(L)[:,None,:,:],
+                    1)
+        else:
+            raise ValueError('wrong shape')
 
     def to_matrix(self, shape):
-        return np.diag(self.params['mask'].flatten())
+        return self.A
+
+    def decompose(self, shape):
+        return self.A, self.pL, self.T
+
 
 
 def observe(x, operator: LinearOperators, sigma=1):
@@ -102,7 +165,7 @@ def observe(x, operator: LinearOperators, sigma=1):
 
 if __name__ == '__main__':
     from matplotlib import pyplot as plt
-    from prepocess import *
+    from datasets import load_images_from_folder, trim_images, Binarize
 
     w = 64
     data = load_images_from_folder("../assets")
@@ -128,7 +191,7 @@ if __name__ == '__main__':
     from torchvision import datasets, transforms
 
     transform = transforms.Compose([transforms.Resize(w), transforms.ToTensor(), Binarize(0.5, True)])
-    mask_data = datasets.MNIST(root='../assets', train=True, download=True, transform=transform)
+    mask_data = datasets.MNIST(root='../data', train=True, download=True, transform=transform)
     mask, _ = mask_data[0]
     mask = mask.squeeze()
 
@@ -144,3 +207,32 @@ if __name__ == '__main__':
     axe[2].imshow(transformed)
     plt.show()
     # matrix = operator.to_matrix((data.shape[0], data.shape[1]))
+
+
+    import configs.inverse.nc_ddpmpp_inpaint as configs
+    from datasets import get_mask_dataset, get_dataset
+
+    config = configs.get_config()
+
+    train_ds, _ = get_dataset(config)
+    train_iter = iter(train_ds)
+    batch, _ = next(train_iter)
+
+    mask_ds = get_mask_dataset(config)
+    mask_iter = iter(mask_ds)
+    mask, _ = next(mask_iter)
+
+    operator = InpaintOperator(mask=mask.squeeze(0))
+    masked_batch = operator(batch)
+
+    from torchvision.utils import make_grid, save_image
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    nrow = int(np.sqrt(masked_batch.shape[0]))
+    image_grid = make_grid(masked_batch, nrow, padding=0)
+    print(image_grid.shape, image_grid.min(), image_grid.max())
+
+    fig, axe = plt.subplots(nrows=1, ncols=1, figsize=(20, 20))
+    axe.imshow(image_grid[0])
+    plt.show()

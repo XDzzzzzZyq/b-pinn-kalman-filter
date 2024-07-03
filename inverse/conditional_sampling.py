@@ -33,7 +33,8 @@ def get_conditional_sampler(obsv_sde:sde_lib.OBSVSDE, shape, lambda_schedule,
         weight = lambda_schedule(t)
 
         if isinstance(obsv_sde.operator, InpaintOperator):
-            x = weight[:,None,None] * bcmm(L.transpose(2,3) @ A, yt) + (1.-weight)[:,None,None] * bcmm(A, x) + bcmm((1.-A), x)
+            I = torch.eye(shape[2]*shape[3]).to(x.device)
+            x = weight[:,None,None] * bcmm(L.transpose(2,3) @ A, yt) + (1.-weight)[:,None,None] * bcmm(A, x) + bcmm((I-A), x)
 
         return x
 

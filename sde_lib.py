@@ -32,6 +32,11 @@ class SDE(abc.ABC):
         pass
 
     @abc.abstractmethod
+    def marginal_coef(self, t):
+        """"marginal mu and sigma at t"""
+        pass
+
+    @abc.abstractmethod
     def marginal_prob(self, x, t):
         """Parameters to determine the marginal distribution of the SDE, $p_t(x)$."""
         pass
@@ -158,11 +163,16 @@ class VPSDE(SDE):
         diffusion_coef = torch.sqrt(beta_t)
         return drift_coef, diffusion_coef
 
-    def marginal_prob(self, x, t):
+    def marginal_coef(self, t):
         log_mean_coeff = -0.25 * t ** 2 * (self.beta_1 - self.beta_0) - 0.5 * t * self.beta_0
-        mean = torch.exp(log_mean_coeff[:, None, None, None]) * x
+        mean = torch.exp(log_mean_coeff)
         std = torch.sqrt(1. - torch.exp(2. * log_mean_coeff))
+
         return mean, std
+
+    def marginal_prob(self, x, t):
+        mean, std = self.marginal_coef(t)
+        return mean[:, None, None, None] * x, std
 
     def prior_sampling(self, shape):
         return torch.randn(*shape)
@@ -215,11 +225,16 @@ class subVPSDE(SDE):
         diffusion_coef = torch.sqrt(beta_t * discount)
         return drift_coef, diffusion_coef
 
-    def marginal_prob(self, x, t):
+    def marginal_coef(self, t):
         log_mean_coeff = -0.25 * t ** 2 * (self.beta_1 - self.beta_0) - 0.5 * t * self.beta_0
-        mean = torch.exp(log_mean_coeff)[:, None, None, None] * x
+        mean = torch.exp(log_mean_coeff)
         std = 1 - torch.exp(2. * log_mean_coeff)
+
         return mean, std
+
+    def marginal_prob(self, x, t):
+        mean, std = self.marginal_coef(t)
+        return mean[:,None,None,None]*x, std
 
     def prior_sampling(self, shape):
         return torch.randn(*shape)
@@ -307,7 +322,7 @@ class LOBSVSDE(SDE):
         return self.mat
 
     def marginal_prob(self, z, t):
-        alpha, beta = self.state_sde.coefficient(t)
+        alpha, beta = self.state_sde.marginal_coef(t)
         if self.mat is None:
             self.mat = self.operator.to_matrix(z.shape)
         corr = self.mat & self.mat.T
@@ -317,7 +332,7 @@ class LOBSVSDE(SDE):
         return mean, std
 
     def observe_sampling(self, z, t): # shape: (B, C, D)
-        alpha, beta = self.state_sde.coefficient(t)
+        alpha, beta = self.state_sde.marginal_coef(t)
         return alpha[:,None,None] * self.y0 + beta[:,None,None] * self.operator(z, False)
 
     def prior_sampling(self, shape):
@@ -334,4 +349,7 @@ class LOBSVSDE(SDE):
         pass
 
     def coefficient(self, t):
+        pass
+
+    def marginal_coef(self, t):
         pass

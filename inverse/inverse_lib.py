@@ -40,7 +40,7 @@ def get_obsvsde(config, y0, operator):
     from sde_lib import LOBSVSDE
 
     sde, sampling_eps = _get_sde(config)
-    if config.inverse.sampler == 'conditional':
+    if config.inverse.sampler in ['controlled', 'dps']:
         obsvsde = LOBSVSDE(sde, y0, operator)
     else:
         raise NotImplementedError
@@ -51,9 +51,9 @@ def _inverse_fn(config, score_model):
     sampling_shape = (config.training.batch_size, config.data.num_channels,
                       config.data.image_size, config.data.image_size)
 
-    train_ds, _ = datasets.get_dataset(config)
-    train_iter = iter(train_ds)
-    batch, _ = next(train_iter)
+    _, test_ds = datasets.get_dataset(config)
+    test_iter = iter(test_ds)
+    batch, _ = next(test_iter)
 
     operator = get_operator(config)
     observation_vis = operator(batch.to(config.device), True) # for visualization
@@ -62,14 +62,14 @@ def _inverse_fn(config, score_model):
     obsvsde, sampling_eps = get_obsvsde(config, observation, operator)
     sampling_fn = get_sampler(config, obsvsde, sampling_shape, eps=sampling_eps)
 
-    sample, n = sampling_fn(score_model)
-    return observation_vis, operator, sample, n
+    sample = sampling_fn(score_model)
+    return observation_vis, operator, sample
 
-def inverse(config, ckptdir, workdir):
+def inverse(config, ckptdir, workdir, visualize=True):
     score_model = mutils.create_model(config)
     score_model = load_checkpoint(ckptdir, score_model, config.device)
 
-    observation, operator, sample, n = _inverse_fn(config, score_model)
+    observation, operator, sample = _inverse_fn(config, score_model)
 
     os.makedirs(workdir, exist_ok=True)
     nrow = int(np.sqrt(sample.shape[0]))
@@ -81,3 +81,11 @@ def inverse(config, ckptdir, workdir):
 
     with open(os.path.join(workdir, "observation.png"), "wb") as fout:
         save_image(obsv_grid, fout)
+
+    if visualize:
+        import matplotlib.pyplot as plt
+        fig, axe = plt.subplots(nrows=2, ncols=1, figsize=(20, 20))
+        axe[0].imshow(obsv_grid[0].cpu())
+        axe[1].imshow(image_grid[0].cpu())
+        plt.show()
+        plt.savefig(os.path.join(workdir, "visualize.png"))

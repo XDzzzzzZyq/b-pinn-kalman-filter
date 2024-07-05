@@ -123,6 +123,11 @@ class OBSVSDE(SDE):
 
     state_sde: SDE
     operator: LinearOperators
+
+    def __init__(self, N, y0, operator):
+        super().__init__(N)
+        self.y0 = y0
+        self.operator = operator
     @abstractmethod
     def observe_sampling(self, z, t):
         pass
@@ -302,7 +307,7 @@ class VESDE(SDE):
         return f, G
 
 
-class LOBSVSDE(SDE):
+class LOBSVSDE(OBSVSDE):
     def __init__(self, state_sde: SDE, y0, operator: LinearOperators):
         """Construct a Linear Observation SDE.
 
@@ -311,21 +316,20 @@ class LOBSVSDE(SDE):
           y0:        the observation y_0. ill-posed
           operator:  the linearobervation operator A
         """
-        super().__init__(state_sde.N)
+        super().__init__(state_sde.N, y0, operator)
 
         self.state_sde = state_sde
-        self.y0 = y0
-        self.operator = operator
         self.mat = None
 
     def get_matrix(self, shape):
+        if self.mat is None:
+            self.mat = self.operator.to_matrix(shape)
         return self.mat
 
     def marginal_prob(self, z, t):
         alpha, beta = self.state_sde.marginal_coef(t)
-        if self.mat is None:
-            self.mat = self.operator.to_matrix(z.shape)
-        corr = self.mat & self.mat.T
+        mat = self.get_matrix(z.shape)
+        corr = mat & mat
         mean = alpha * self.y0
         std = beta ** 2 * corr
 

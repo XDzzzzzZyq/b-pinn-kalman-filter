@@ -1,6 +1,19 @@
 import torch
 import os
 import logging
+import time
+
+class Clock:
+    def __init__(self, itv):
+        self.itv = itv
+        self.start = time.time()
+    def tic(self, info:str):
+        elapsed_time = time.time() - self.start
+
+        # Check if it's time to log
+        if elapsed_time >= self.itv:
+            print(info)
+            self.start = time.time()  # Reset the timer
 
 
 def restore_checkpoint(ckpt_dir, state, device):

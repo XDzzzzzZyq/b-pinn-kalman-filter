@@ -116,6 +116,34 @@ main.py:
 
   These functionalities can be configured through config files, or more conveniently, through the command-line support of the `ml_collections` package. For example, to generate samples and evaluate sample quality, supply the  `--config.eval.enable_sampling` flag; to compute log-likelihoods, supply the `--config.eval.enable_bpd` flag, and specify `--config.eval.dataset=train/test` to indicate whether to compute the likelihoods on the training or test dataset.
 
+#### Example
+
+- Train
+```sh
+python main.py 
+  --config=configs/vp/nc_chl_ddpmpp.py 
+  --mode=train  
+  --workdir=workdir/nc-chl
+```
+
+- Sample
+```sh
+python main.py 
+  --config=configs/vp/nc_ddpmpp.py 
+  --mode=sample  
+  --ckptdir=workdir/nc-theta/checkpoints/checkpoint_1.pth 
+  --workdir=sample/sample_nc
+```
+
+- Inverse
+```sh
+python main.py 
+  --config=configs/inverse/nc_ddpmpp_inpaint.py 
+  --mode=inverse 
+  --ckptdir=workdir/nc-theta/checkpoints/checkpoint_2.pth 
+  --workdir=workdir/nc-theta/inverse
+```
+
 ## How to extend the code
 * **New SDEs**: inherent the `sde_lib.SDE` abstract class and implement all abstract methods. The `discretize()` method is optional and the default is Euler-Maruyama discretization. Existing sampling methods and likelihood computation will automatically work for this new SDE.
 * **New predictors**: inherent the `sampling.Predictor` abstract class, implement the `update_fn` abstract method, and register its name with `@register_predictor`. The new predictor can be directly used in `sampling.get_pc_sampler` for Predictor-Corrector sampling, and all other controllable generation methods in `controllable_generation.py`.

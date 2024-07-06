@@ -179,3 +179,5 @@ class DDPM(nn.Module):
       h = h / used_sigmas
 
     return h
+
+UNet = DDPM

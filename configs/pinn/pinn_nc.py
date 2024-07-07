@@ -2,7 +2,7 @@ import ml_collections
 from configs.pinn.pinn_default_configs import get_default_configs
 
 
-def get_configs():
+def get_config():
   config = get_default_configs()
 
   data = config.data

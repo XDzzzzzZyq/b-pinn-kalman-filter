@@ -22,7 +22,7 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import datasets, transforms
 from torchvision.transforms.functional import InterpolationMode
 import os
-import imageio
+import imageio.v2 as imageio
 
 
 def load_images_from_folder(folder):
@@ -95,11 +95,13 @@ class PDEDataset(Dataset):
     def __getitem__(self, idx):
         idx = idx if self.split == 'train' else int(self.len * 0.9) + idx
         t = idx / self.__len__()
-        sample = self.data[idx, :, 5:250, 50:-5].data
-
+        sample = self.data[idx, :, 5:300,5:-5].data
+        sample = torch.from_numpy(sample)
+        #sample = sample.reshape(sample.shape[1], sample.shape[2], sample.shape[0])
+        #print(sample.shape)
         if self.transform:
             sample = self.transform(sample)
-
+        #print(sample.shape)
         return sample[:3], t, sample[3:]
 
 
@@ -242,11 +244,10 @@ def get_dataset(config, uniform_dequantization=False, evaluation=False):
 
         from netCDF4 import Dataset
 
-        data = Dataset('/data1/80000-25-400-200.nc')
+        data = Dataset('/data1/20000-25-400-200.nc')
         data = data['data']
 
         transform = transforms.Compose([
-            transforms.ToTensor(),
             transforms.RandomCrop(config.data.image_size, pad_if_needed=True, padding_mode='constant')])
 
         train_dataset = PDEDataset(data, split='train', transform=transform)

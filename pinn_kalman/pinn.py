@@ -26,8 +26,8 @@ class PINN_Net(nn.Module):
     """
     def __init__(self, config, mean_value, std_value):
         super(PINN_Net, self).__init__()
-        self.X_mean = torch.from_numpy(mean_value.astype(np.float32)).to(config.device)
-        self.X_std = torch.from_numpy(std_value.astype(np.float32)).to(config.device)
+        self.X_mean = mean_value.to(config.device).float()
+        self.X_std = std_value.to(config.device).float()
         self.device = config.device
 
         self.model = torch.nn.DataParallel(UNet(config)).to(self.device)
@@ -49,12 +49,11 @@ class PINN_Net(nn.Module):
 
     # derive loss for data
     # 类内方法：求数据点的loss
-    def data_mse(self, X, t, Y):
-        predict_out = self.forward(X, t)
+    def data_mse(self, prediction, Y):
         u, v, p = Y[:,0], Y[:,1], Y[:,2]
-        u_predict = predict_out[:, 0].reshape(-1, 1)
-        v_predict = predict_out[:, 1].reshape(-1, 1)
-        p_predict = predict_out[:, 2].reshape(-1, 1)
+        u_predict = prediction[:, 0]
+        v_predict = prediction[:, 1]
+        p_predict = prediction[:, 2]
         mse = torch.nn.MSELoss()
         mse_predict = mse(u_predict, u) + mse(v_predict, v) + mse(p_predict, p)
         return mse_predict
@@ -64,8 +63,8 @@ class PINN_Net(nn.Module):
     def data_mse_without_p(self, X, t, Y):
         predict_out = self.forward(X, t)
         u, v = Y[:, 0], Y[:, 1]
-        u_predict = predict_out[:, 0].reshape(-1, 1)
-        v_predict = predict_out[:, 1].reshape(-1, 1)
+        u_predict = predict_out[:, 0]
+        v_predict = predict_out[:, 1]
         mse = torch.nn.MSELoss()
         mse_predict = mse(u_predict, u) + mse(v_predict, v)
         return mse_predict
@@ -74,45 +73,29 @@ class PINN_Net(nn.Module):
     # 类内方法：预测
     def predict(self, X, t):
         predict_out = self.forward(X, t)
-        u_predict = predict_out[:, 0].reshape(-1, 1)
-        v_predict = predict_out[:, 1].reshape(-1, 1)
-        p_predict = predict_out[:, 2].reshape(-1, 1)
+        u_predict = predict_out[:, 0]
+        v_predict = predict_out[:, 1]
+        p_predict = predict_out[:, 2]
         return u_predict, v_predict, p_predict
 
     # derive loss for equation
-    def equation_mse_dimensionless(self, X, t, Re):
-        #print("asdasdasda")
-        predict_out = self.forward(X, t)
-        x, y = X[:,0], X[:,1]
-        #print(predict_out.shape, "8908098080")
+    def equation_mse_dimensionless(self, X, t, prediction, Re):
+
         # 获得预测的输出u,v,p
-        u = predict_out[:, 0].reshape(-1, 1)
-        v = predict_out[:, 1].reshape(-1, 1)
-        p = predict_out[:, 2].reshape(-1, 1)
-        x.requires_grad_()
-        y.requires_grad_()
-        t.requires_grad_()
         # 通过自动微分计算各个偏导数,其中.sum()将矢量转化为标量，并无实际意义
         # first-order derivative
         # 一阶导
 
         #print()
-        u_x = torch.autograd.grad(u.sum(), x, create_graph=True, allow_unused=True, materialize_grads=True)[0]
-        u_y = torch.autograd.grad(u.sum(), y, create_graph=True, allow_unused=True, materialize_grads=True)[0]
-        u_t = torch.autograd.grad(u.sum(), t, create_graph=True, allow_unused=True, materialize_grads=True)[0]
-        v_x = torch.autograd.grad(v.sum(), x, create_graph=True, allow_unused=True, materialize_grads=True)[0]
-        v_y = torch.autograd.grad(v.sum(), y, create_graph=True, allow_unused=True, materialize_grads=True)[0]
-        v_t = torch.autograd.grad(v.sum(), t, create_graph=True, allow_unused=True, materialize_grads=True)[0]
-        p_x = torch.autograd.grad(p.sum(), x, create_graph=True, allow_unused=True, materialize_grads=True)[0]
-        p_y = torch.autograd.grad(p.sum(), y, create_graph=True, allow_unused=True, materialize_grads=True)[0]
+        uvp_xyf = torch.autograd.grad(prediction.sum(), X, is_grads_batched=True)[0]
+        uvp_t   = torch.autograd.grad(prediction.sum(), t, is_grads_batched=True)[0]
         # second-order derivative
+        print(uvp_xyf.shape)
         # 二阶导
-        u_xx = torch.autograd.grad(u_x.sum(), x, create_graph=True, allow_unused=True, materialize_grads=True)[0]
-        u_yy = torch.autograd.grad(u_y.sum(), y, create_graph=True, allow_unused=True, materialize_grads=True)[0]
-        v_xx = torch.autograd.grad(v_x.sum(), x, create_graph=True, allow_unused=True, materialize_grads=True)[0]
-        v_yy = torch.autograd.grad(v_y.sum(), y, create_graph=True, allow_unused=True, materialize_grads=True)[0]
+        uvp_xyf2= torch.autograd.grad(uvp_xyf.sum(), X)
         # residual
         # 计算偏微分方程的残差
+        #print(u_t.shape, u.shape, u_x.shape, p_x.shape)
         f_equation_mass = u_x + v_y
         f_equation_x = u_t + (u * u_x + v * u_y) + p_x - 1.0 / Re * (u_xx + u_yy)
         f_equation_y = v_t + (u * v_x + v * v_y) + p_y - 1.0 / Re * (v_xx + v_yy)

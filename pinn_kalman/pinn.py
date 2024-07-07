@@ -53,9 +53,11 @@ class PINN_Net(nn.Module):
     # derive loss for data
     # 类内方法：求数据点的loss
     def data_mse(self, prediction, target):
+        mse = torch.nn.MSELoss()
+        return mse(prediction, target)
+
         u, v, p = torch.unbind(target, dim=1)
         u_predict, v_predict, p_predict = torch.unbind(prediction, dim=1)
-        mse = torch.nn.MSELoss()
         mse_predict = mse(u_predict, u) + mse(v_predict, v) + mse(p_predict, p)
         return mse_predict
 
@@ -101,20 +103,11 @@ class PINN_Net(nn.Module):
         f_equation_y = v_t + (u * v_x + v * v_y) + p_y - 1.0 / Re * (v_xx + v_yy)
         mse = torch.nn.MSELoss()
         batch_t_zeros = torch.zeros_like(x, dtype=torch.float32, device=self.device)
-        mse_equation = mse(f_equation_x, batch_t_zeros) + mse(f_equation_y, batch_t_zeros) + \
-                       mse(f_equation_mass, batch_t_zeros)
+        mse_x = mse(f_equation_x, batch_t_zeros)
+        mse_y = mse(f_equation_y, batch_t_zeros)
+        mse_mass = mse(f_equation_mass, batch_t_zeros)
 
-        return mse_equation
-
-    def data_mse_inner_norm(self, X, t, Y):
-        predict_out = self.forward_inner_norm(X, t)
-        u, v, p = Y[:, 0], Y[:, 1], Y[:, 2]
-        u_predict = predict_out[:, 0].reshape(-1, 1)
-        v_predict = predict_out[:, 1].reshape(-1, 1)
-        p_predict = predict_out[:, 2].reshape(-1, 1)
-        mse = torch.nn.MSELoss()
-        mse_predict = mse(u_predict, u) + mse(v_predict, v) + mse(p_predict, p)
-        return mse_predict
+        return mse_x + mse_y + mse_mass
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt

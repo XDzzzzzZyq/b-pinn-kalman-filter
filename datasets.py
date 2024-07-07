@@ -94,7 +94,8 @@ class PDEDataset(Dataset):
 
     def __getitem__(self, idx):
         idx = idx if self.split == 'train' else int(self.len * 0.9) + idx
-        t = idx / self.__len__()
+        #t = idx / self.__len__()
+        t = idx
         sample = self.data[idx, :, 5:300,5:-5].data
         sample = torch.from_numpy(sample)
         #sample = sample.reshape(sample.shape[1], sample.shape[2], sample.shape[0])

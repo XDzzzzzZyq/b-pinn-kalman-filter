@@ -218,7 +218,7 @@ def get_pinn_step_fn(config, train, optimize_fn=None):
         mse_data = model.data_mse(prediction, uvp)
         mse_equation = model.equation_mse_dimensionless(x, y, t, prediction, 100000.0)
 
-        loss = mse_equation + mse_data
+        loss = 1e8*mse_equation + 1e-2*mse_data
         return loss, mse_equation, mse_data
 
     def step_fn(state, xyf, t, uvp):

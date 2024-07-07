@@ -21,11 +21,7 @@ def train(config, workdir):
     os.makedirs(tb_dir, exist_ok=True)
     writer = tensorboard.SummaryWriter(tb_dir)
 
-    # Initialize model.
-    mean_value = torch.ones(3, device=config.device) * 0.5  # 需要提供适当的归一化均值和标准差
-    std_value = torch.ones(3, device=config.device) * 0.5
-
-    model = PINN_Net(config, mean_value, std_value)
+    model = PINN_Net(config)
     ema = ExponentialMovingAverage(model.parameters(), decay=config.model.ema_rate)
     optimizer = losses.get_optimizer(config, model.parameters())
     state = dict(optimizer=optimizer, model=model, ema=ema, step=0)
@@ -111,10 +107,7 @@ if __name__ == "__main__":
     config = get_config()
     workdir = "workdir/pde-pinn_kalman/checkpoints/checkpoint-2.pth"
 
-    mean_value = torch.ones(3, device=config.device) * 0.5  # 需要提供适当的归一化均值和标准差
-    std_value = torch.ones(3, device=config.device) * 0.5
-
-    model = PINN_Net(config, mean_value, std_value)
+    model = PINN_Net(config)
     model = load_checkpoint(workdir, model, config.device)
 
 

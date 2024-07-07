@@ -210,10 +210,13 @@ def get_step_fn(sde, train, optimize_fn=None, reduce_mean=False, continuous=True
 
 def get_pinn_step_fn(config, train, optimize_fn=None):
     def loss_fn(model, xyf, t, uvp):
+        x, y, f = torch.unbind(xyf, dim=1)
+        x, y, f, t = x.requires_grad_(), y.requires_grad_(), f.requires_grad_(), t.requires_grad_()
+        field = torch.stack([x, y, f], dim=1)
         # 数据点的MSE损失
-        prediction = model(xyf, t)
+        prediction = model(field, t)
         mse_data = model.data_mse(prediction, uvp)
-        mse_equation = model.equation_mse_dimensionless(xyf, t, prediction, 100000.0)
+        mse_equation = model.equation_mse_dimensionless(x, y, t, prediction, 100000.0)
 
         loss = mse_equation + mse_data
         return loss, mse_equation, mse_data

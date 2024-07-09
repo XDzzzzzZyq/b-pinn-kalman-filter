@@ -181,3 +181,22 @@ class DDPM(nn.Module):
     return h
 
 UNet = DDPM
+
+
+
+class MLP(nn.Module):
+    def __init__(self, config, shape=[1,3,3,1]):
+        super(MLP, self).__init__()
+
+        self.C, self.H, self.W = config.data.num_channels, config.data.image_size, config.data.image_size
+        self.L = self.C* self.H* self.W
+        self.nn = nn.Sequential()
+        for i in range(len(shape)-1):
+            a = shape[i]
+            b = shape[i+1]
+            self.nn.add_module(f'fc{i}', nn.Linear(self.L*a, self.L*b))
+            self.nn.add_module(f'relu{i}', nn.ReLU())
+        self.nn.pop(-1)
+
+    def forward(self, x, t):
+      return self.nn(x.reshape(-1, self.L)).reshape(-1, self.C, self.H, self.W)

@@ -10,11 +10,10 @@ import os
 import numpy as np
 import torch
 import torch.nn as nn
-from models.ddpm import UNet
+from models.ddpm import UNet, MLP
 import torch.nn.functional as F
 import torch.optim as opt 
 from pyDOE import lhs
-
 
 # Define network structure, specified by a list of layers indicating the number of layers and neurons
 # 定义网络结构,由layer列表指定网络层数和神经元数
@@ -27,8 +26,9 @@ class PINN_Net(nn.Module):
     def __init__(self, config):
         super(PINN_Net, self).__init__()
         self.device = config.device
-
-        self.model = torch.nn.DataParallel(UNet(config)).to(self.device)
+        #model = UNet(config)
+        model = MLP(config)
+        self.model = torch.nn.DataParallel(model).to(self.device)
         self.mask_u, self.mask_v, self.mask_p = self.get_mask(config)
 
     def get_mask(self, config):
@@ -56,10 +56,8 @@ class PINN_Net(nn.Module):
         mse = torch.nn.MSELoss()
         return mse(prediction, target)
 
-        u, v, p = torch.unbind(target, dim=1)
-        u_predict, v_predict, p_predict = torch.unbind(prediction, dim=1)
-        mse_predict = mse(u_predict, u) + mse(v_predict, v) + mse(p_predict, p)
-        return mse_predict
+    def advection_mse(self, x, y, t, prediction):
+        return None
 
     # derive loss for equation
     def equation_mse_dimensionless(self, x, y, t, prediction, Re):

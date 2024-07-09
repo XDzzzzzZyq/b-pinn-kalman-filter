@@ -216,6 +216,7 @@ def get_pinn_step_fn(config, train, optimize_fn=None):
         # 数据点的MSE损失
         prediction = model(field, t)
         mse_data = model.data_mse(prediction, uvp)
+        return mse_data, mse_data, mse_data
         mse_equation = model.equation_mse_dimensionless(x, y, t, prediction, 100000.0)
 
         loss = 1e8*mse_equation + 1e-2*mse_data

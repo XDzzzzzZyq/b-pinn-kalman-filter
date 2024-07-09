@@ -90,7 +90,7 @@ def train(config, workdir):
             eval_target = eval_target.to(config.device).float()
 
             eval_loss, eval_loss_e, eval_loss_d = eval_step_fn(state, eval_batch, eval_t, eval_target)
-            logging.info("step: %d, eval_loss: %.5e = (%.5e, %.5e)" % (step, loss.item(), loss_e.item(), loss_d.item()))
+            logging.info("step: %d, eval_loss: %.5e = (%.5e, %.5e)" % (step, eval_loss.item(), eval_loss_e.item(), eval_loss_d.item()))
             writer.add_scalar("eval_loss", eval_loss.item(), step)
 
         # Save a checkpoint periodically and generate samples if needed
@@ -105,14 +105,17 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     from configs.pinn.pinn_pde import get_config
     config = get_config()
-    workdir = "workdir/pde-pinn_kalman/checkpoints/checkpoint-2.pth"
+    workdir = "workdir/pde-pred/checkpoints/checkpoint-4.pth"
 
     model = PINN_Net(config)
     model = load_checkpoint(workdir, model, config.device)
 
+    for param in model.parameters():
+        print(param.size())  # Print the size of each parameter tensor
+        print(param)
 
-    # Build data iterators
-    eval_ds, _ = datasets.get_dataset(config,
+        # Build data iterators
+    _, eval_ds = datasets.get_dataset(config,
                                              uniform_dequantization=config.data.uniform_dequantization)
     eval_iter = iter(eval_ds)  # pytype: disable=wrong-arg-types
     eval_batch, eval_t, eval_target = next(eval_iter)
@@ -124,14 +127,19 @@ if __name__ == "__main__":
 
     predict = model(eval_batch, eval_t)
 
-    fig, axe = plt.subplots(nrows=2, ncols=3, figsize=(40, 20))
-    axe[0][0].imshow(predict[0, 0].cpu().detach().numpy())
-    axe[0][1].imshow(predict[0, 1].cpu().detach().numpy())
-    axe[0][2].imshow(predict[0, 2].cpu().detach().numpy())
+    fig, axe = plt.subplots(nrows=3, ncols=3, figsize=(40, 20))
+
+    axe[0][0].imshow(eval_batch[0, 0].cpu().detach().numpy())
+    axe[0][1].imshow(eval_batch[0, 1].cpu().detach().numpy())
+    axe[0][2].imshow(eval_batch[0, 2].cpu().detach().numpy())
 
     axe[1][0].imshow(eval_target[0, 0].cpu().detach().numpy())
     axe[1][1].imshow(eval_target[0, 1].cpu().detach().numpy())
     axe[1][2].imshow(eval_target[0, 2].cpu().detach().numpy())
+
+    axe[2][0].imshow(predict[0, 0].cpu().detach().numpy())
+    axe[2][1].imshow(predict[0, 1].cpu().detach().numpy())
+    axe[2][2].imshow(predict[0, 2].cpu().detach().numpy())
 
     plt.show()
 

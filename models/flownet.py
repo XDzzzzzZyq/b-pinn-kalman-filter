@@ -8,9 +8,9 @@ def project(f, u, dt):
         B, C, H, W = u.shape
         grid_h = torch.linspace(-1.0, 1.0, W).view(1, 1, 1, W).expand(B, -1, H, -1)
         grid_v = torch.linspace(-1.0, 1.0, H).view(1, 1, H, 1).expand(B, -1, -1, W)
-        temp_grid[str(u.shape)] = torch.cat([grid_h, grid_v], 1).to(f.device)
+        temp_grid[str(u.shape)] = torch.cat([grid_h, grid_v], 1)
 
-    grid = temp_grid[str(u.shape)]
+    grid = temp_grid[str(u.shape)].to(u.device)
     u = torch.cat([
         u[:, 1:2, :, :] / ((f.size(2) - 1.0) / 2.0),
         u[:, 0:1, :, :] / ((f.size(3) - 1.0) / 2.0)
@@ -121,7 +121,7 @@ class SubpixelRefinement(nn.Module):
         # backward warping by vm
         feature2 = project(feature2, flow, -self.dt)
 
-        block = torch.stack([feature1, feature2, flow], dim=1)
+        block = torch.cat([feature1, feature2, flow], dim=1)
         return flow + self.flow_conv(block)
 
 class InferenceUnit(nn.Module):

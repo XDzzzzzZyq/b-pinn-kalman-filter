@@ -44,8 +44,8 @@ class PINN_Net(nn.Module):
 
         return mask1, mask2, mask3
 
-    def forward(self, f1, f2, t):
-        predict = self.model(f1, f2, None, t)
+    def forward(self, f1, f2, coord, t):
+        predict = self.model(f1, f2, coord, t)
         return predict
 
     # derive loss for data

@@ -61,6 +61,8 @@ class FeatureExtractor(nn.Module):
             self.feature_extractors.append(get_conv_feature_layer(ch_i, ch_o))
             ch_i = ch_o
 
+        self.feature_extractors = nn.ModuleList(self.feature_extractors)
+
     def forward(self, x):
         result = []
         for layer in self.feature_extractors:
@@ -146,7 +148,7 @@ class FlowNet(nn.Module):
         levels = [l for l in range(len(config.model.feature_nums))][::-1]
         self.inference_units = nn.ModuleList([InferenceUnit(config, level) for level in levels])
 
-    def forward(self, f1, f2, coord, t, ):
+    def forward(self, f1, f2, coord, t):
         f1_features = self.feature_extractor(f1)
         f2_features = self.feature_extractor(f2)
 

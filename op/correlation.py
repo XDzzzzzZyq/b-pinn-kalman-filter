@@ -30,7 +30,8 @@ class _FunctionCorrelation(torch.autograd.Function):
             first.size(1)
         ])
 
-        self.save_for_backward(first, second, rbot0, rbot1, stride)
+        self.save_for_backward(first, second, rbot0, rbot1)
+        self.stride = stride
 
         assert (first.is_contiguous() == True)
         assert (second.is_contiguous() == True)
@@ -55,6 +56,7 @@ class _FunctionCorrelation(torch.autograd.Function):
     @staticmethod
     def backward(self, grad):
         first, second, rbot0, rbot1, stride = self.saved_tensors
+        stride = self.stride
 
         assert (grad.is_contiguous() == True)
 

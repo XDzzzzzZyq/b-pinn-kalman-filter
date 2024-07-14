@@ -17,7 +17,7 @@ def get_default_configs():
 
   # data
   config.data = data = ml_collections.ConfigDict()
-  data.num_channels = 3
+  data.num_channels = 1
   data.dataset = '_'
   data.image_size = 32
   data.random_flip = False

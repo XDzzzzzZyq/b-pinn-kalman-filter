@@ -15,7 +15,6 @@
 
 # pylint: skip-file
 """Return training and evaluation/test datasets from config files."""
-import jax
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -88,22 +87,28 @@ class PDEDataset(Dataset):
         self.data = data
         self.split = split
         self.transform = transform
+        self.offset = 160
 
     def __len__(self):
-        return int(self.len * 0.9) if self.split == 'train' else int(self.len * 0.1)
+        len = int(self.len * 0.9)-self.offset if self.split == 'train' else int(self.len * 0.1)
+        return len - 1
 
     def __getitem__(self, idx):
-        idx = idx if self.split == 'train' else int(self.len * 0.9) + idx
+        ''' Return a batch of f1, f2, coord, t, target '''
+
+        idx = idx+self.offset if self.split == 'train' else int(self.len * 0.9) + idx
         #t = idx / self.__len__()
-        t = idx
-        sample = self.data[idx, :, 5:300,5:-5].data
+        t = idx+1
+        sample = self.data[idx:idx+2, :, 5:300,5:-5].data
         sample = torch.from_numpy(sample)
         #sample = sample.reshape(sample.shape[1], sample.shape[2], sample.shape[0])
         #print(sample.shape)
         if self.transform:
             sample = self.transform(sample)
-        #print(sample.shape)
-        return sample[:3], t, sample[3:]
+        x_t = sample[1]
+        x_p = sample[0]
+
+        return x_p[2], x_t[2], x_t[0:2], t, x_t[3:]
 
 
 
@@ -165,9 +170,9 @@ def get_dataset(config, uniform_dequantization=False, evaluation=False):
     """
     # Compute batch size for this worker.
     batch_size = config.training.batch_size if not evaluation else config.eval.batch_size
-    if batch_size % jax.device_count() != 0:
+    if batch_size % torch.cuda.device_count() != 0:
         raise ValueError(f'Batch sizes ({batch_size} must be divided by'
-                         f'the number of devices ({jax.device_count()})')
+                         f'the number of devices ({torch.cuda.device_count()})')
 
     # Reduce this when image resolution is too large and data pointer is stored
     shuffle_buffer_size = 10000
@@ -273,3 +278,13 @@ def get_mask_dataset(config):
 
     mask_loader = DataLoader(mask_dataset, batch_size=1, shuffle=True, num_workers=4)
     return mask_loader
+
+
+if __name__ == '__main__':
+    from configs.pinn.pinn_pde import get_config
+    config = get_config()
+
+    train_loader, test_loader = get_dataset(config)
+    coord, x0, x1, t, target = next(iter(test_loader))
+
+    print(coord.shape, x0.shape, x1.shape, target.shape)

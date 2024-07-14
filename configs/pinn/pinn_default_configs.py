@@ -56,6 +56,8 @@ def get_default_configs():
   model.fourier_scale = 16
   model.conv_size = 3
 
+  model.feature_nums = [16, 32, 64] # 3 levels of features
+
   # optimization
   config.optim = optim = ml_collections.ConfigDict()
   optim.weight_decay = 0

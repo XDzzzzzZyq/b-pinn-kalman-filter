@@ -11,9 +11,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from models.ddpm import UNet, MLP
-import torch.nn.functional as F
-import torch.optim as opt 
-from pyDOE import lhs
+from models.flownet import FlowNet
 
 # Define network structure, specified by a list of layers indicating the number of layers and neurons
 # 定义网络结构,由layer列表指定网络层数和神经元数
@@ -26,15 +24,15 @@ class PINN_Net(nn.Module):
     def __init__(self, config):
         super(PINN_Net, self).__init__()
         self.device = config.device
+        model = FlowNet(config)
         #model = UNet(config)
-        model = MLP(config)
+        #model = MLP(config)
         self.model = torch.nn.DataParallel(model).to(self.device)
         self.mask_u, self.mask_v, self.mask_p = self.get_mask(config)
 
     def get_mask(self, config):
         '''for differentiable slicing'''
 
-        B = config.training.batch_size
         N = config.data.image_size
         device = config.device
 
@@ -46,8 +44,8 @@ class PINN_Net(nn.Module):
 
         return mask1, mask2, mask3
 
-    def forward(self, field, t):
-        predict = self.model(field, t)
+    def forward(self, f1, f2, t):
+        predict = self.model(f1, f2, None, t)
         return predict
 
     # derive loss for data

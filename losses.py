@@ -208,26 +208,26 @@ def get_step_fn(sde, train, optimize_fn=None, reduce_mean=False, continuous=True
     return step_fn
 
 
-def get_pinn_step_fn(config, train, optimize_fn=None):
-    def loss_fn(model, xyf, t, uvp):
-        x, y, f = torch.unbind(xyf, dim=1)
-        x, y, f, t = x.requires_grad_(), y.requires_grad_(), f.requires_grad_(), t.requires_grad_()
-        field = torch.stack([x, y, f], dim=1)
-        # 数据点的MSE损失
-        prediction = model(field, t)
-        mse_data = model.data_mse(prediction, uvp)
+def get_pinn_step_fn(config, train, optimize_fn):
+    def loss_fn(model, batch):
+
+        f1, f2, coord, t, target = batch
+
+        prediction = model(f1, f2, coord, t)
+        mse_data = model.data_mse(prediction, target[:,:2])
         return mse_data, mse_data, mse_data
-        mse_equation = model.equation_mse_dimensionless(x, y, t, prediction, 100000.0)
+        #mse_equation = model.equation_mse_dimensionless(x, y, t, prediction, 100000.0)
 
-        loss = 1e8*mse_equation + 1e-2*mse_data
-        return loss, mse_equation, mse_data
+        #loss = 1e8*mse_equation + 1e-2*mse_data
+        #return loss, mse_equation, mse_data
 
-    def step_fn(state, xyf, t, uvp):
+    def step_fn(state, batch):
         model = state['model']
+
         if train:
             optimizer = state['optimizer']
             optimizer.zero_grad()
-            loss, loss_e, loss_d = loss_fn(model, xyf, t, uvp)
+            loss, loss_e, loss_d = loss_fn(model, batch)
             loss.backward()
             optimize_fn(optimizer, model.parameters(), step=state['step'])
             state['step'] += 1
@@ -236,7 +236,7 @@ def get_pinn_step_fn(config, train, optimize_fn=None):
             ema = state['ema']
             ema.store(model.parameters())
             ema.copy_to(model.parameters())
-            loss, loss_e, loss_d = loss_fn(model, xyf, t, uvp)
+            loss, loss_e, loss_d = loss_fn(model, batch)
             ema.restore(model.parameters())
 
         return loss, loss_e, loss_d

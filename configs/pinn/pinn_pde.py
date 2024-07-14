@@ -7,10 +7,6 @@ def get_config():
   
   data = config.data
   data.dataset = 'PDE'
-  data.category = 'Theta'
-  data.key = 'THETA'
-  data.date_range = '2013to2017_1day'
-  data.depth = 0
-  data.land_cut = 200
+  data.dt = 1.75
 
   return config

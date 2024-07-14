@@ -12,6 +12,15 @@ from torch.utils import tensorboard
 from torchvision.utils import make_grid, save_image
 from utils import save_checkpoint, load_checkpoint, restore_checkpoint
 
+
+def unbatch(config, batch):
+    f1, f2, coord, t, target = batch
+    return (f1.to(config.device).float(),
+            f2.to(config.device).float(),
+            coord.to(config.device).float(),
+            t.to(config.device).float(),
+            target.to(config.device).float())
+
 def train(config, workdir):
     # Create directories for experimental logs
     sample_dir = os.path.join(workdir, "samples")
@@ -59,17 +68,12 @@ def train(config, workdir):
 
     for step in range(initial_step, num_train_steps + 1):
         try:
-            batch, t, target = next(train_iter)
+            batch = next(train_iter)
         except StopIteration:
             train_iter = iter(train_ds)
 
-        # Convert data to JAX arrays and normalize them. Use ._numpy() to avoid copy.
-        batch = batch.to(config.device).float()
-        t = t.to(config.device).float()
-        target = target.to(config.device).float()
-
         # Execute one training step
-        loss, loss_e, loss_d = train_step_fn(state, batch, t, target)
+        loss, loss_e, loss_d = train_step_fn(state, unbatch(config, batch))
 
         if step % config.training.log_freq == 0:
             logging.info("step: %d, training_loss: %.5e = (%.5e, %.5e)" % (step, loss.item(), loss_e.item(), loss_d.item()))
@@ -82,14 +86,11 @@ def train(config, workdir):
         # Report the loss on an evaluation dataset periodically
         if step % config.training.eval_freq == 0:
             try:
-                eval_batch, eval_t, eval_target = next(eval_iter)
+                eval_batch = next(eval_iter)
             except StopIteration:
                 eval_iter = iter(eval_ds)
-            eval_batch = eval_batch.to(config.device).float()
-            eval_t = eval_t.to(config.device).float()
-            eval_target = eval_target.to(config.device).float()
 
-            eval_loss, eval_loss_e, eval_loss_d = eval_step_fn(state, eval_batch, eval_t, eval_target)
+            eval_loss, eval_loss_e, eval_loss_d = eval_step_fn(state, unbatch(config, eval_batch))
             logging.info("step: %d, eval_loss: %.5e = (%.5e, %.5e)" % (step, eval_loss.item(), eval_loss_e.item(), eval_loss_d.item()))
             writer.add_scalar("eval_loss", eval_loss.item(), step)
 
@@ -118,24 +119,24 @@ if __name__ == "__main__":
     _, eval_ds = datasets.get_dataset(config,
                                              uniform_dequantization=config.data.uniform_dequantization)
     eval_iter = iter(eval_ds)  # pytype: disable=wrong-arg-types
-    eval_batch, eval_t, eval_target = next(eval_iter)
+    f1, f2, coord, t, target = next(eval_iter)
 
     nrow = int(8)
-    image_grid = make_grid(eval_target, nrow, padding=2)
+    image_grid = make_grid(target, nrow, padding=2)
     plt.imshow(image_grid[0])
     plt.show()
 
-    predict = model(eval_batch, eval_t)
+    predict = model(f1, f2, coord, t)
 
     fig, axe = plt.subplots(nrows=3, ncols=3, figsize=(40, 20))
 
-    axe[0][0].imshow(eval_batch[0, 0].cpu().detach().numpy())
-    axe[0][1].imshow(eval_batch[0, 1].cpu().detach().numpy())
-    axe[0][2].imshow(eval_batch[0, 2].cpu().detach().numpy())
+    axe[0][0].imshow(coord[0, 0].cpu().detach().numpy())
+    axe[0][1].imshow(coord[0, 1].cpu().detach().numpy())
+    axe[0][2].imshow(f2[0].cpu().detach().numpy())
 
-    axe[1][0].imshow(eval_target[0, 0].cpu().detach().numpy())
-    axe[1][1].imshow(eval_target[0, 1].cpu().detach().numpy())
-    axe[1][2].imshow(eval_target[0, 2].cpu().detach().numpy())
+    axe[1][0].imshow(target[0, 0].cpu().detach().numpy())
+    axe[1][1].imshow(target[0, 1].cpu().detach().numpy())
+    axe[1][2].imshow(target[0, 2].cpu().detach().numpy())
 
     axe[2][0].imshow(predict[0, 0].cpu().detach().numpy())
     axe[2][1].imshow(predict[0, 1].cpu().detach().numpy())

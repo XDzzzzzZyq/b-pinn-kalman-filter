@@ -24,6 +24,8 @@ def get_config():
   # inpaint
   inverse = config.inverse = ml_collections.ConfigDict()
   inverse.operator = 'inpaint'
+  inverse.invert = False
+  inverse.ratio = 0.5
   inverse.sampler = 'controlled'
   inverse.solver = 'fixed' #‘RK45’, ‘RK23’, 'fixed'
 

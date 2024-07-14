@@ -272,9 +272,15 @@ def get_dataset(config, uniform_dequantization=False, evaluation=False):
 def get_mask_dataset(config):
     transform = transforms.Compose([transforms.Resize(config.data.image_size),
                                     transforms.ToTensor(),
-                                    Binarize(0.5, True),
+                                    Binarize(config.inverse.ratio, not config.inverse.invert),
                                     Repeat(config.training.batch_size)])
-    mask_dataset = datasets.MNIST(root='./data', train=True, download=True, transform=transform)
+    mask_dataset = None
+
+    if config.inverse.operator == 'inpaint':
+        mask_dataset = datasets.MNIST(root='./data', train=True, download=True, transform=transform)
+    elif config.inverse.operator == 'inpaint_rnd':
+        rnd_mask = np.random.rand(16, 1, config.data.image_size, config.data.image_size)
+        mask_dataset = CustomDataset(rnd_mask, split='train', transform=transform)
 
     mask_loader = DataLoader(mask_dataset, batch_size=1, shuffle=True, num_workers=4)
     return mask_loader

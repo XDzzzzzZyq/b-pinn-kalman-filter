@@ -138,9 +138,9 @@ python main.py
 - Inverse
 ```sh
 python main.py 
-  --config=configs/inverse/nc_ddpmpp_inpaint.py 
+  --config=configs/inverse/nc_ddpmpp_inpaint_dps.py 
   --mode=inverse 
-  --ckptdir=workdir/nc-theta/checkpoints/checkpoint_2.pth 
+  --ckptdir=workdir/nc-theta/checkpoints/checkpoint_5.pth 
   --workdir=workdir/nc-theta/inverse
 ```
 

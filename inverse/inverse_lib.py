@@ -23,7 +23,7 @@ def _show_result(result):
 
 def get_operator(config):
 
-    if config.inverse.operator == 'inpaint':
+    if config.inverse.operator in ['inpaint', 'inpaint_rnd']:
         mask_ds = datasets.get_mask_dataset(config)
         mask_iter = iter(mask_ds)
         mask, _ = next(mask_iter)
@@ -71,6 +71,7 @@ def inverse(config, ckptdir, workdir, visualize=True):
 
     observation, operator, sample = _inverse_fn(config, score_model)
 
+    workdir = os.path.join(workdir, f"{config.inverse.operator}-{config.inverse.ratio}")
     os.makedirs(workdir, exist_ok=True)
     nrow = int(np.sqrt(sample.shape[0]))
     obsv_grid = make_grid(observation, nrow, padding=2)

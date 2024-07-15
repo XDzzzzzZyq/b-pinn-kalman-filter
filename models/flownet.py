@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from op import correlation
 
 temp_grid = {}
@@ -143,6 +144,7 @@ class FlowNet(nn.Module):
     def __init__(self, config):
         super(FlowNet, self).__init__()
 
+        self.size = (config.data.image_size, config.data.image_size)
         self.feature_extractor = FeatureExtractor(config)
 
         levels = [l for l in range(len(config.model.feature_nums))][::-1]
@@ -151,14 +153,18 @@ class FlowNet(nn.Module):
     def forward(self, f1, f2, coord, t):
         f1_features = self.feature_extractor(f1)
         f2_features = self.feature_extractor(f2)
-
+        
+        cascaded_flow = []
         flow = None
         for unit in self.inference_units:
             feature1 = f1_features[unit.level]
             feature2 = f2_features[unit.level]
             flow = unit(feature1, feature2, flow)
-
-        return flow
+            cascaded_flow.append(flow)
+        
+        flow = F.interpolate(input=flow, size=self.size, mode='bilinear', align_corners=False)
+        cascaded_flow.append(flow)
+        return cascaded_flow
 
 
 if __name__ == '__main__':

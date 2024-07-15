@@ -55,7 +55,7 @@ class _FunctionCorrelation(torch.autograd.Function):
 
     @staticmethod
     def backward(self, grad):
-        first, second, rbot0, rbot1, stride = self.saved_tensors
+        first, second, rbot0, rbot1 = self.saved_tensors
         stride = self.stride
 
         assert (grad.is_contiguous() == True)

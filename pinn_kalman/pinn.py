@@ -52,7 +52,7 @@ class PINN_Net(nn.Module):
     # 类内方法：求数据点的loss
     def data_mse(self, prediction, target):
         mse = torch.nn.MSELoss()
-        return mse(prediction, target)
+        return mse(prediction[-1], target)
 
     def advection_mse(self, x, y, t, prediction):
         return None

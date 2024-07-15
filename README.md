@@ -144,6 +144,14 @@ python main.py
   --workdir=workdir/nc-theta/inverse
 ```
 
+- Train PINN
+```sh
+python main.py
+  --config=configs/pinn/pinn_pde.py 
+  --mode=train_pinn  
+  --workdir=workdir/pde-pinn
+```
+
 ## How to extend the code
 * **New SDEs**: inherent the `sde_lib.SDE` abstract class and implement all abstract methods. The `discretize()` method is optional and the default is Euler-Maruyama discretization. Existing sampling methods and likelihood computation will automatically work for this new SDE.
 * **New predictors**: inherent the `sampling.Predictor` abstract class, implement the `update_fn` abstract method, and register its name with `@register_predictor`. The new predictor can be directly used in `sampling.get_pc_sampler` for Predictor-Corrector sampling, and all other controllable generation methods in `controllable_generation.py`.

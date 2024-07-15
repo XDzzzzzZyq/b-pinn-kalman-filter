@@ -56,24 +56,28 @@ class Repeat:
         self.times = times
 
     def __call__(self, img):
-        assert img.ndim == 3
+        assert img.ndim <= 3
         return img.repeat(self.times, 1, 1, 1)  # Repeat image 'times' times
 
 
 class CustomDataset(Dataset):
-    def __init__(self, data, split='train', transform=None, land_cut=0):
+    def __init__(self, data, split='train', transform=None, land_cut=0, remove_mask=True):
         self.len = len(data)
         self.split = split
         self.data = data
         self.transform = transform
         self.land_cut = land_cut
+        self.remove_mask = remove_mask
 
     def __len__(self):
         return int(self.len * 0.8) if self.split == 'train' else int(self.len * 0.2)
 
     def __getitem__(self, idx):
         idx = idx if self.split == 'train' else int(self.len * 0.8) + idx
-        sample = self.data[idx, 0, self.land_cut:].data
+        sample = self.data[idx, 0, self.land_cut:]
+
+        if self.remove_mask:
+            sample = sample.data
 
         if self.transform:
             sample = self.transform(sample)
@@ -270,17 +274,24 @@ def get_dataset(config, uniform_dequantization=False, evaluation=False):
 
 
 def get_mask_dataset(config):
-    transform = transforms.Compose([transforms.Resize(config.data.image_size),
-                                    transforms.ToTensor(),
-                                    Binarize(config.inverse.ratio, not config.inverse.invert),
-                                    Repeat(config.training.batch_size)])
     mask_dataset = None
 
     if config.inverse.operator == 'inpaint':
+        transform = transforms.Compose([transforms.Resize(config.data.image_size),
+                                        transforms.ToTensor(),
+                                        Binarize(config.inverse.ratio, not config.inverse.invert),
+                                        Repeat(config.training.batch_size)])
+
         mask_dataset = datasets.MNIST(root='./data', train=True, download=True, transform=transform)
+
     elif config.inverse.operator == 'inpaint_rnd':
-        rnd_mask = np.random.rand(16, 1, config.data.image_size, config.data.image_size)
-        mask_dataset = CustomDataset(rnd_mask, split='train', transform=transform)
+
+        transform = transforms.Compose([transforms.Resize(config.data.image_size),
+                                        Binarize(config.inverse.ratio, not config.inverse.invert),
+                                        Repeat(config.training.batch_size)])
+
+        rnd_mask = torch.rand(16, 2, config.data.image_size, config.data.image_size)
+        mask_dataset = CustomDataset(rnd_mask, split='train', transform=transform, remove_mask=False)
 
     mask_loader = DataLoader(mask_dataset, batch_size=1, shuffle=True, num_workers=4)
     return mask_loader

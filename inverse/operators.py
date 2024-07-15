@@ -111,13 +111,27 @@ def bcmm(m, v):
 
 class InpaintOperator(LinearOperators):
 
-    def __call__(self, x, keep_shape=True):
+    def __call__(self, x, keep_shape=True, invert=False):
         assert self.params['mask'].shape == x.shape
 
         if keep_shape:
-            return self.params['mask'] * x
+            if invert:
+                return (1-self.params['mask']) * x
+            else:
+                return self.params['mask'] * x
         else:
-            return bcmm(self.pL, x)
+            if invert:
+                assert self.params['mask'].ndim == 4
+                N, _, A, B = self.params['mask'].shape
+                mat = torch.zeros((N, A * B, A * B)).to(self.params['mask'].device)
+                for i in range(N):
+                    mat[i] = self._get_single_mat(1-self.params['mask'][i])
+                L = [self._get_single_decomposed_mat(m)[0] for m in mat.squeeze()]
+                L = torch.stack(L)[:,None,:,:]
+
+                return bcmm(L, x)
+            else:
+                return bcmm(self.pL, x)
 
     def _get_single_mat(self, mat):
         return torch.diag(mat.flatten()).to(self.params['mask'].device)

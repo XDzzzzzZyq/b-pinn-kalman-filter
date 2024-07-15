@@ -53,23 +53,23 @@ def _inverse_fn(config, score_model):
 
     _, test_ds = datasets.get_dataset(config)
     test_iter = iter(test_ds)
-    batch, _ = next(test_iter)
+    origin, _ = next(test_iter)
 
     operator = get_operator(config)
-    observation_vis = operator(batch.to(config.device), True) # for visualization
-    observation = operator(batch.to(config.device), False) # ill-posed observation
+    observation_vis = operator(origin.to(config.device), keep_shape=True) # for visualization
+    observation = operator(origin.to(config.device), keep_shape=False) # ill-posed observation
 
     obsvsde, sampling_eps = get_obsvsde(config, observation, operator)
     sampling_fn = get_sampler(config, obsvsde, sampling_shape, eps=sampling_eps)
 
     sample = sampling_fn(score_model)
-    return observation_vis, operator, sample
+    return origin, observation_vis, sample, operator
 
 def inverse(config, ckptdir, workdir, visualize=True):
     score_model = mutils.create_model(config)
     score_model = load_checkpoint(ckptdir, score_model, config.device)
 
-    observation, operator, sample = _inverse_fn(config, score_model)
+    origin, observation, sample, operator = _inverse_fn(config, score_model)
 
     workdir = os.path.join(workdir, f"{config.inverse.operator}-{config.inverse.ratio}")
     os.makedirs(workdir, exist_ok=True)
@@ -90,3 +90,18 @@ def inverse(config, ckptdir, workdir, visualize=True):
         axe[1].imshow(image_grid[0].cpu())
         plt.show()
         plt.savefig(os.path.join(workdir, "visualize.png"))
+
+def evaluate_inverse(config, origin, inv, operator):
+    import torch
+
+    loss = torch.nn.MSELoss()
+
+    if config.inverse.operator in ['inpaint', 'inpaint_rnd']:
+        # mask the masked area and left inverted area
+        origin = operator(origin.to(config.device), keep_shape=False, invert=True)
+        inv = operator(inv.to(config.device), keep_shape=False, invert=True)
+
+        return loss(origin, inv).item()
+
+    else:
+        raise NotImplementedError

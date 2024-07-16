@@ -97,9 +97,10 @@ def evaluate_inverse(config, origin, inv, operator):
     loss = torch.nn.MSELoss()
 
     if config.inverse.operator in ['inpaint', 'inpaint_rnd']:
+
         # mask the masked area and left inverted area
-        origin = operator(origin.to(config.device), keep_shape=False, invert=True)
-        inv = operator(inv.to(config.device), keep_shape=False, invert=True)
+        #origin = operator(origin.to(config.device), keep_shape=False, invert=True)
+        #inv = operator(inv.to(config.device), keep_shape=False, invert=True)
 
         return loss(origin, inv).item()
 

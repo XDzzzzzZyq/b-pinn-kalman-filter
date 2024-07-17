@@ -95,6 +95,7 @@ def evaluate_inverse(config, origin, inv, operator):
     import torch
 
     loss = torch.nn.MSELoss()
+    device = config.device
 
     if config.inverse.operator in ['inpaint', 'inpaint_rnd']:
 
@@ -102,7 +103,7 @@ def evaluate_inverse(config, origin, inv, operator):
         #origin = operator(origin.to(config.device), keep_shape=False, invert=True)
         #inv = operator(inv.to(config.device), keep_shape=False, invert=True)
 
-        return loss(origin, inv).item()
+        return loss(origin.to(device), inv.to(device)).item()
 
     else:
         raise NotImplementedError

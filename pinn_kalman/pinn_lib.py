@@ -71,6 +71,7 @@ def train(config, workdir):
             batch = next(train_iter)
         except StopIteration:
             train_iter = iter(train_ds)
+            batch = next(train_iter)
 
         # Execute one training step
         loss, loss_e, loss_d = train_step_fn(state, unbatch(config, batch))
@@ -86,11 +87,12 @@ def train(config, workdir):
         # Report the loss on an evaluation dataset periodically
         if step % config.training.eval_freq == 0:
             try:
-                eval_batch = next(eval_iter)
+                batch = next(eval_iter)
             except StopIteration:
                 eval_iter = iter(eval_ds)
+                batch = next(eval_iter)
 
-            eval_loss, eval_loss_e, eval_loss_d = eval_step_fn(state, unbatch(config, eval_batch))
+            eval_loss, eval_loss_e, eval_loss_d = eval_step_fn(state, unbatch(config, batch))
             logging.info("step: %d, eval_loss: %.5e = (%.5e, %.5e)" % (step, eval_loss.item(), eval_loss_e.item(), eval_loss_d.item()))
             writer.add_scalar("eval_loss", eval_loss.item(), step)
 

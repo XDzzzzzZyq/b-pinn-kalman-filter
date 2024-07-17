@@ -19,7 +19,7 @@ from configs.vp import nc_ddpmpp
 def get_config():
   config = nc_ddpmpp.get_config()
 
-  config.training.batch_size = 16
+  config.training.batch_size = 64
 
   # inpaint
   inverse = config.inverse = ml_collections.ConfigDict()

@@ -15,6 +15,9 @@
 
 """Training and evaluation"""
 
+import os
+os.environ["TORCH_CUDA_ARCH_LIST"] = "8.6;9.0"
+
 import run_lib
 from inverse import inverse_lib
 from pinn_kalman import pinn_lib
@@ -22,7 +25,6 @@ from absl import app
 from absl import flags
 from ml_collections.config_flags import config_flags
 import logging
-import os
 
 FLAGS = flags.FLAGS
 

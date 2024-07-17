@@ -37,7 +37,7 @@ static __global__ void kernel_Correlation_rearrange(
 	  }
 	  int sample = blockIdx.z;
 	  int num_channel = blockIdx.y;
-	  float dblValue = input[(((sample * size_input.c) + num_channel) * size_input.h * size_input.w) + index];
+	  scalar_t dblValue = input[(((sample * size_input.c) + num_channel) * size_input.h * size_input.w) + index];
 	  __syncthreads();
 	  int padded_y = (index / size_input.w) + 3*stride;
 	  int padded_x = (index % size_input.w) + 3*stride;
@@ -57,7 +57,7 @@ static __global__ void kernel_Correlation_updateOutput(
 ) {
 	  extern __shared__ char patch_data_char[];
 
-	  float *patch_data = (float *)patch_data_char;
+	  scalar_t *patch_data = (scalar_t *)patch_data_char;
 
 	  // First (upper left) position of kernel upper-left corner in current center position of neighborhood in image 1
 	  int x1 = (blockIdx.x + 3) * stride;
@@ -79,7 +79,7 @@ static __global__ void kernel_Correlation_updateOutput(
 
 	  __syncthreads();
 
-	  __shared__ float sum[32];
+	  __shared__ scalar_t sum[32];
 
 	  // Compute correlation
 	  for (int top_channel = 0; top_channel < size_top.c; top_channel++) {
@@ -106,13 +106,13 @@ static __global__ void kernel_Correlation_updateOutput(
 	    __syncthreads();
 
 	    if (ch_off == 0) {
-	      float total_sum = 0;
+	      scalar_t total_sum = 0;
 	      for (int idx = 0; idx < 32; idx++) {
 	        total_sum += sum[idx];
 	      }
 	      const int sumelems = size_rbot0.w;
 	      const int index = ((top_channel*size_top.h + blockIdx.y)*size_top.w)+blockIdx.x;
-	      top[index + item*size_top.c*size_top.h*size_top.w] = total_sum / (float)sumelems;
+	      top[index + item*size_top.c*size_top.h*size_top.w] = total_sum / (scalar_t)sumelems;
 	    }
 	  }
 	}
@@ -150,7 +150,7 @@ static __global__ void kernel_Correlation_updateGradFirst(
 	  int xmax = (l - 3*stride + round_off_s1) / stride - round_off; // floor (l - 3*stride) / stride
 	  int ymax = (m - 3*stride + round_off_s1) / stride - round_off; // floor (m - 3*stride) / stride
 
-	  float sum = 0;
+	  scalar_t sum = 0;
 	  if (xmax>=0 && ymax>=0 && (xmin<=size_out.w-1) && (ymin<=size_out.h-1)) {
 	    xmin = fmaxf(0,xmin);
 	    xmax = fminf(size_out.w-1,xmax);
@@ -164,7 +164,7 @@ static __global__ void kernel_Correlation_updateGradFirst(
 	        int s2o = stride * o;
 	        int s2p = stride * p;
 	        int idxbot1 = ((sample * size_rbot0.c + (m+s2p)) * size_rbot0.h + (l+s2o)) * size_rbot0.w + n;
-	        float bot1tmp = rbot1[idxbot1]; // rbot1[l+s2o,m+s2p,n]
+	        scalar_t bot1tmp = rbot1[idxbot1]; // rbot1[l+s2o,m+s2p,n]
 
 	        // Index offset for gradOutput in following loops:
 	        int op = (p+3) * 7 + (o+3); // index[o,p]
@@ -181,7 +181,7 @@ static __global__ void kernel_Correlation_updateGradFirst(
 	  }
 	  const int sumelems = size_first.c;
 	  const int bot0index = ((n * size_first.h) + (m-3*stride)) * size_first.w + (l-3*stride);
-	  gradFirst[bot0index + sample * size_first.c * size_first.h * size_first.w] = sum / (float)sumelems;
+	  gradFirst[bot0index + sample * size_first.c * size_first.h * size_first.w] = sum / (scalar_t)sumelems;
 	} }
 
 #define ROUND_OFF 50000
@@ -208,7 +208,7 @@ static __global__ void kernel_Correlation_updateGradSecond(
 	  const int round_off = ROUND_OFF;
 	  const int round_off_s1 = stride * round_off;
 
-	  float sum = 0;
+	  scalar_t sum = 0;
 	  for (int p = -3; p <= 3; p++) {
 	    for (int o = -3; o <= 3; o++) {
 	      int s2o = stride * o;
@@ -232,7 +232,7 @@ static __global__ void kernel_Correlation_updateGradSecond(
 
 	        // Get rbot0 data:
 	        int idxbot0 = ((sample * size_rbot0.c + (m-s2p)) * size_rbot0.h + (l-s2o)) * size_rbot0.w + n;
-	        float bot0tmp = rbot0[idxbot0]; // rbot1[l+s2o,m+s2p,n]
+	        scalar_t bot0tmp = rbot0[idxbot0]; // rbot1[l+s2o,m+s2p,n]
 
 	        // Index offset for gradOutput in following loops:
 	        int op = (p+3) * 7 + (o+3); // index[o,p]
@@ -249,7 +249,7 @@ static __global__ void kernel_Correlation_updateGradSecond(
 	  }
 	  const int sumelems = size_second.c;
 	  const int bot1index = ((n * size_second.h) + (m-3*stride)) * size_second.w + (l-3*stride);
-	  gradSecond[bot1index + sample * size_second.c * size_second.h * size_second.w] = sum / (float)sumelems;
+	  gradSecond[bot1index + sample * size_second.c * size_second.h * size_second.w] = sum / (scalar_t)sumelems;
 	} }
 
 
@@ -302,9 +302,10 @@ void correlation_update_op(
 
     dim3 grid_size(size_output.w, size_output.h, size_output.b);
     dim3 block_size(32, 1, 1);
+    int shared_size = size_input.c * 4;
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(input1.scalar_type(), "kernel_Correlation_updateOutput", [&] {
-        kernel_Correlation_updateOutput<scalar_t><<<grid_size, block_size, 0, stream>>>(
+        kernel_Correlation_updateOutput<scalar_t><<<grid_size, block_size, shared_size, stream>>>(
             n, stride,
             input1.data_ptr<scalar_t>(),
             input2.data_ptr<scalar_t>(),

@@ -23,11 +23,11 @@ class _FunctionCorrelation(torch.autograd.Function):
             first.size(3) + (6 * stride),
             first.size(1)
         ])
-        rbot1 = first.new_zeros([
-            first.size(0),
-            first.size(2) + (6 * stride),
-            first.size(3) + (6 * stride),
-            first.size(1)
+        rbot1 = second.new_zeros([
+            second.size(0),
+            second.size(2) + (6 * stride),
+            second.size(3) + (6 * stride),
+            second.size(1)
         ])
 
         self.save_for_backward(first, second, rbot0, rbot1)

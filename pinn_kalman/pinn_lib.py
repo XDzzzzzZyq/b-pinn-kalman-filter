@@ -113,10 +113,6 @@ if __name__ == "__main__":
     model = PINN_Net(config)
     model = load_checkpoint(workdir, model, config.device)
 
-    for param in model.parameters():
-        print(param.size())  # Print the size of each parameter tensor
-        print(param)
-
         # Build data iterators
     _, eval_ds = datasets.get_dataset(config,
                                              uniform_dequantization=config.data.uniform_dequantization)

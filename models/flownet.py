@@ -54,15 +54,15 @@ class FeatureExtractor(nn.Module):
         super(FeatureExtractor, self).__init__()
         self.C, self.H, self.W = config.data.num_channels, config.data.image_size, config.data.image_size
         self.fln = len(config.model.feature_nums)  # num of feature layers
-        self.feature_extractors = []
 
+        feature_extractors = []
         ch_i = self.C
         for i in range(self.fln):
             ch_o = config.model.feature_nums[i]
-            self.feature_extractors.append(get_conv_feature_layer(ch_i, ch_o))
+            feature_extractors.append(get_conv_feature_layer(ch_i, ch_o))
             ch_i = ch_o
 
-        self.feature_extractors = nn.ModuleList(self.feature_extractors)
+        self.feature_extractors = nn.ModuleList(feature_extractors)
 
     def forward(self, x):
         result = []
@@ -78,9 +78,7 @@ class Matching(nn.Module):
         super(Matching, self).__init__()
         self.dt = config.data.dt * 0.5**level
 
-        # up-sampling flow field from previous level except the highest level
-        if level < len(config.model.feature_nums):
-            self.flow_upsample = torch.nn.ConvTranspose2d(
+        self.flow_upsample = torch.nn.ConvTranspose2d(
                         in_channels=2,
                         out_channels=2,
                         kernel_size=4,
@@ -88,8 +86,6 @@ class Matching(nn.Module):
                         padding=1,
                         bias=False,
                         groups=2)
-        else:
-            self.flow_upsample = torch.nn.Sequential()
 
         self.corr_conv = get_conv_flow_layer(49)
 
@@ -112,7 +108,7 @@ class SubpixelRefinement(nn.Module):
     def __init__(self, config, level):
         super(SubpixelRefinement, self).__init__()
 
-        self.dt = config.data.dt * 0.5 ** level
+        self.dt = config.data.dt * 0.5 ** (level+1)
 
         block_depth = config.model.feature_nums[level]*2 + 2  # feature1 + feature2 + flow(2)
         self.flow_conv = get_conv_flow_layer(block_depth)
@@ -124,6 +120,13 @@ class SubpixelRefinement(nn.Module):
 
         block = torch.cat([feature1, feature2, flow], dim=1)
         return flow + self.flow_conv(block)
+
+class Regularization(torch.nn.Module):
+    def __init__(self, config, level):
+        super(Regularization, self).__init__()
+
+        self.dt = config.data.dt * 0.5 ** (level+1)
+
 
 class InferenceUnit(nn.Module):
     def __init__(self, config, level):
@@ -147,7 +150,7 @@ class FlowNet(nn.Module):
         self.size = (config.data.image_size, config.data.image_size)
         self.feature_extractor = FeatureExtractor(config)
 
-        levels = [l for l in range(len(config.model.feature_nums))][::-1]
+        levels = [l for l in range(len(config.model.feature_nums))][::-1] # level n-1, n-2, ..., 0
         self.inference_units = nn.ModuleList([InferenceUnit(config, level) for level in levels])
 
     def forward(self, f1, f2, coord, t):

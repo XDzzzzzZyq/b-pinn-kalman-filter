@@ -108,7 +108,7 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     from configs.pinn.pinn_pde import get_config
     config = get_config()
-    workdir = "workdir/pde-pred/checkpoints/checkpoint-4.pth"
+    workdir = "workdir/pde-pinn/checkpoints/checkpoint-4.pth"
 
     model = PINN_Net(config)
     model = load_checkpoint(workdir, model, config.device)
@@ -117,12 +117,7 @@ if __name__ == "__main__":
     _, eval_ds = datasets.get_dataset(config,
                                              uniform_dequantization=config.data.uniform_dequantization)
     eval_iter = iter(eval_ds)  # pytype: disable=wrong-arg-types
-    f1, f2, coord, t, target = next(eval_iter)
-
-    nrow = int(8)
-    image_grid = make_grid(target, nrow, padding=2)
-    plt.imshow(image_grid[0])
-    plt.show()
+    f1, f2, coord, t, target = unbatch(config, next(eval_iter))
 
     predict = model(f1, f2, coord, t)
 
@@ -130,15 +125,15 @@ if __name__ == "__main__":
 
     axe[0][0].imshow(coord[0, 0].cpu().detach().numpy())
     axe[0][1].imshow(coord[0, 1].cpu().detach().numpy())
-    axe[0][2].imshow(f2[0].cpu().detach().numpy())
+    axe[0][2].imshow(f2[0, 0].cpu().detach().numpy())
 
     axe[1][0].imshow(target[0, 0].cpu().detach().numpy())
     axe[1][1].imshow(target[0, 1].cpu().detach().numpy())
     axe[1][2].imshow(target[0, 2].cpu().detach().numpy())
 
-    axe[2][0].imshow(predict[0, 0].cpu().detach().numpy())
-    axe[2][1].imshow(predict[0, 1].cpu().detach().numpy())
-    axe[2][2].imshow(predict[0, 2].cpu().detach().numpy())
+    axe[2][0].imshow(predict[-3][0, 0].cpu().detach().numpy())
+    axe[2][1].imshow(predict[-2][0, 0].cpu().detach().numpy())
+    axe[2][2].imshow(predict[-1][0, 0].cpu().detach().numpy())
 
     plt.show()
 

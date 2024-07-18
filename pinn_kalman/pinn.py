@@ -12,6 +12,7 @@ import torch
 import torch.nn as nn
 from models.ddpm import UNet, MLP
 from models.flownet import FlowNet
+from models.liteflownet import LiteFlowNet
 
 # Define network structure, specified by a list of layers indicating the number of layers and neurons
 # 定义网络结构,由layer列表指定网络层数和神经元数
@@ -24,7 +25,7 @@ class PINN_Net(nn.Module):
     def __init__(self, config):
         super(PINN_Net, self).__init__()
         self.device = config.device
-        model = FlowNet(config)
+        model = LiteFlowNet(config)
         #model = UNet(config)
         #model = MLP(config)
         self.model = torch.nn.DataParallel(model).to(self.device)
@@ -52,7 +53,7 @@ class PINN_Net(nn.Module):
     # 类内方法：求数据点的loss
     def data_mse(self, prediction, target):
         mse = torch.nn.MSELoss()
-        return mse(prediction[-1], target)
+        return mse(prediction, target)
 
     def advection_mse(self, x, y, t, prediction):
         return None

@@ -214,7 +214,7 @@ def get_pinn_step_fn(config, train, optimize_fn):
         f1, f2, coord, t, target = batch
 
         prediction = model(f1, f2, coord, t)
-        mse_data = model.data_mse(prediction, target[:,:2])
+        mse_data = model.data_mse(prediction[-1], target[:,:2])
         return mse_data, mse_data, mse_data
         #mse_equation = model.equation_mse_dimensionless(x, y, t, prediction, 100000.0)
 

@@ -86,12 +86,12 @@ class CustomDataset(Dataset):
 
 
 class PDEDataset(Dataset):
-    def __init__(self, data, split='train', transform=None):
+    def __init__(self, data, split='train', transform=None, trim=160):
         self.len = len(data)
         self.data = data
         self.split = split
         self.transform = transform
-        self.offset = 160
+        self.offset = trim
 
     def __len__(self):
         len = int(self.len * 0.9)-self.offset if self.split == 'train' else int(self.len * 0.1)
@@ -260,8 +260,8 @@ def get_dataset(config, uniform_dequantization=False, evaluation=False):
         transform = transforms.Compose([
             transforms.RandomCrop(config.data.image_size, pad_if_needed=True, padding_mode='constant')])
 
-        train_dataset = PDEDataset(data, split='train', transform=transform)
-        test_dataset = PDEDataset(data, split='test', transform=transform)
+        train_dataset = PDEDataset(data, split='train', transform=transform, trim=config.data.time_trim)
+        test_dataset = PDEDataset(data, split='test', transform=transform, trim=config.data.time_trim)
 
     else:
         raise NotImplementedError(

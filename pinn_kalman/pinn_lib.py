@@ -6,7 +6,6 @@ import torch
 import logging
 import sampling
 from models import utils as mutils
-from models.ema import ExponentialMovingAverage
 import datasets
 from torch.utils import tensorboard
 from torchvision.utils import make_grid, save_image
@@ -31,9 +30,8 @@ def train(config, workdir):
     writer = tensorboard.SummaryWriter(tb_dir)
 
     model = PINN_Net(config)
-    ema = ExponentialMovingAverage(model.parameters(), decay=config.model.ema_rate)
     optimizer = losses.get_optimizer(config, model.parameters())
-    state = dict(optimizer=optimizer, model=model, ema=ema, step=0)
+    state = dict(optimizer=optimizer, model=model, step=0)
 
     # Create checkpoints directory
     checkpoint_dir = os.path.join(workdir, "checkpoints")

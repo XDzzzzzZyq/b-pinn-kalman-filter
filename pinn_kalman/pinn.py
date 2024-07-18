@@ -13,6 +13,7 @@ import torch.nn as nn
 from models.ddpm import UNet, MLP
 from models.flownet import FlowNet
 from models.liteflownet import LiteFlowNet
+import torch.nn.functional as F
 
 # Define network structure, specified by a list of layers indicating the number of layers and neurons
 # 定义网络结构,由layer列表指定网络层数和神经元数
@@ -54,6 +55,33 @@ class PINN_Net(nn.Module):
     def data_mse(self, prediction, target):
         mse = torch.nn.MSELoss()
         return mse(prediction, target)
+
+    def multiscale_data_mse(self, prediction:list, target):
+        h, w = prediction[-1].shape[-2], prediction[-1].shape[-1]
+
+        def average_epe(f, g):
+            return torch.mean(torch.sqrt(torch.sum((f - g) ** 2, dim=1)), dim=(0, 1, 2))
+
+        weights = [12.7, 5.5, 4.35, 3.9, 3.4, 1.1]
+
+        assert (len(weights) == len(prediction))
+
+        loss = 0
+        for i, weight in enumerate(weights):
+            scale_factor = 1.0 / (2 ** i)
+
+            flow = prediction[-1 - i]
+            losses = average_epe(flow * scale_factor, target * scale_factor)
+
+            loss += weight * losses
+
+            h = h // 2
+            w = w // 2
+
+            target = F.interpolate(target, (h, w), mode='bilinear', align_corners=False)
+
+        return loss
+
 
     def advection_mse(self, x, y, t, prediction):
         return None

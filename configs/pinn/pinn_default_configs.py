@@ -26,36 +26,7 @@ def get_default_configs():
 
   # model
   config.model = model = ml_collections.ConfigDict()
-  model.sigma_max = 378
-  model.sigma_min = 0.01
-  model.num_scales = 2000
-  model.beta_min = 0.1
-  model.beta_max = 20.
-  model.dropout = 0.
-  model.embedding_type = 'fourier'
-  model.scale_by_sigma = False
-  model.ema_rate = 0.9999
-  model.normalization = 'GroupNorm'
-  model.nonlinearity = 'swish'
-  model.nf = 128
-  model.ch_mult = (1, 2, 2, 2)
-  model.num_res_blocks = 4
-  model.attn_resolutions = (16,)
-  model.resamp_with_conv = True
-  model.conditional = True
-  model.fir = False
-  model.fir_kernel = [1, 3, 3, 1]
-  model.skip_rescale = True
-  model.resblock_type = 'biggan'
-  model.progressive = 'none'
-  model.progressive_input = 'none'
-  model.progressive_combine = 'sum'
-  model.attention_type = 'ddpm'
-  model.init_scale = 0.
-  model.embedding_type = 'positional'
-  model.fourier_scale = 16
-  model.conv_size = 3
-
+  model.arch = 'flownet'
   model.feature_nums = [16, 32, 64, 96] # 4 levels of features
 
   # optimization

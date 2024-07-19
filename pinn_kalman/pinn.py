@@ -15,6 +15,18 @@ from models.flownet import FlowNet
 from models.liteflownet import LiteFlowNet
 import torch.nn.functional as F
 
+def get_model(config):
+    if config.model.arch == 'flownet':
+        return FlowNet(config)
+    elif config.model.arch == 'liteflownet':
+        return LiteFlowNet(config)
+    elif config.model.arch == 'unet':
+        return UNet(config)
+    elif config.model.arch == 'mlp':
+        return MLP(config)
+    else:
+        raise NotImplementedError
+
 # Define network structure, specified by a list of layers indicating the number of layers and neurons
 # 定义网络结构,由layer列表指定网络层数和神经元数
 class PINN_Net(nn.Module):
@@ -26,9 +38,7 @@ class PINN_Net(nn.Module):
     def __init__(self, config):
         super(PINN_Net, self).__init__()
         self.device = config.device
-        model = LiteFlowNet(config)
-        #model = UNet(config)
-        #model = MLP(config)
+        model = get_model(config)
         self.model = torch.nn.DataParallel(model).to(self.device)
         self.mask_u, self.mask_v, self.mask_p = self.get_mask(config)
 

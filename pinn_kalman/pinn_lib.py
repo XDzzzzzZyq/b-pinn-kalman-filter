@@ -112,7 +112,7 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     from configs.pinn.pinn_pde import get_config
     config = get_config()
-    workdir = "workdir/pde-lfn/checkpoints/checkpoint_1.pth"
+    workdir = "../workdir/pde-fn/checkpoints/checkpoint_10.pth"
 
     model = PINN_Net(config)
     model = load_checkpoint(workdir, model, config.device)

@@ -6,6 +6,7 @@ import torch
 import logging
 import sampling
 from models import utils as mutils
+from models.ema import ExponentialMovingAverage
 import datasets
 from torch.utils import tensorboard
 from torchvision.utils import make_grid, save_image
@@ -30,8 +31,9 @@ def train(config, workdir):
     writer = tensorboard.SummaryWriter(tb_dir)
 
     model = PINN_Net(config)
+    ema = ExponentialMovingAverage(model.parameters(), decay=config.model.ema_rate)
     optimizer = losses.get_optimizer(config, model.parameters())
-    state = dict(optimizer=optimizer, model=model, step=0)
+    state = dict(optimizer=optimizer, model=model, ema=ema, step=0)
 
     # Create checkpoints directory
     checkpoint_dir = os.path.join(workdir, "checkpoints")
@@ -94,6 +96,10 @@ def train(config, workdir):
             logging.info("step: %d, eval_loss: %.5e = (%.5e, %.5e)" % (step, eval_loss.item(), eval_loss_e.item(), eval_loss_d.item()))
             writer.add_scalar("eval_loss", eval_loss.item(), step)
 
+        # Save a temporary checkpoint to resume training after pre-emption periodically
+        if step != 0 and step % config.training.snapshot_freq_for_preemption == 0:
+            save_checkpoint(checkpoint_meta_dir, state)
+
         # Save a checkpoint periodically and generate samples if needed
         if step != 0 and step % config.training.snapshot_freq == 0 or step == num_train_steps:
             # Save the checkpoint.
@@ -106,7 +112,7 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     from configs.pinn.pinn_pde import get_config
     config = get_config()
-    workdir = "workdir/pde-pinn/checkpoints/checkpoint-4.pth"
+    workdir = "workdir/pde-lfn/checkpoints/checkpoint_1.pth"
 
     model = PINN_Net(config)
     model = load_checkpoint(workdir, model, config.device)

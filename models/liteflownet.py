@@ -24,8 +24,8 @@ def Backward(tensorInput, tensorFlow):
     # end
     grid = Backward_tensorGrid[str(tensorFlow.size())].to(tensorInput.device)
     tensorFlow = torch.cat([
-        tensorFlow[:, 0:1, :, :] / ((tensorInput.size(3) - 1.0) / 2.0),
-        tensorFlow[:, 1:2, :, :] / ((tensorInput.size(2) - 1.0) / 2.0)
+        tensorFlow[:, 2:1, :, :] / ((tensorInput.size(3) - 1.0) / 2.0),
+        tensorFlow[:, 0:1, :, :] / ((tensorInput.size(2) - 1.0) / 2.0)
     ], 1)
     return torch.nn.functional.grid_sample(
         input=tensorInput,
@@ -142,8 +142,7 @@ class LiteFlowNet(torch.nn.Module):
             def __init__(self, intLevel):
                 super(Matching, self).__init__()
 
-                self.dblBackward = [0.0, 0.0, 10.0, 5.0, 2.5, 1.25,
-                                    0.625][intLevel]
+                self.dblBackward = config.data.dt * 0.5**intLevel
 
                 if intLevel != 2:
                     self.moduleFeat = torch.nn.Sequential()
@@ -264,8 +263,7 @@ class LiteFlowNet(torch.nn.Module):
             def __init__(self, intLevel):
                 super(Subpixel, self).__init__()
 
-                self.dblBackward = [0.0, 0.0, 10.0, 5.0, 2.5, 1.25,
-                                    0.625][intLevel]
+                self.dblBackward = config.data.dt * 0.5**intLevel
 
                 if intLevel != 2:
                     self.moduleFeat = torch.nn.Sequential()
@@ -336,8 +334,7 @@ class LiteFlowNet(torch.nn.Module):
             def __init__(self, intLevel):
                 super(Regularization, self).__init__()
 
-                self.dblBackward = [0.0, 0.0, 10.0, 5.0, 2.5, 1.25,
-                                    0.625][intLevel]
+                self.dblBackward = config.data.dt * 0.5**intLevel
 
                 self.intUnfold = [0, 0, 7, 5, 5, 3, 3][intLevel]
 
@@ -536,8 +533,6 @@ class LiteFlowNet(torch.nn.Module):
                 tensorFlow)
             flow_collection.append(tensorFlow)
 
-        flow_collection[-1] *= 4.0  # Final flow scale 20.0, others 5.0
-        flow_collection = [flow * 5.0 for flow in flow_collection]
         return flow_collection
 
     def postprossing_flow(self, flow_collection, raw_shape, processed_shape):

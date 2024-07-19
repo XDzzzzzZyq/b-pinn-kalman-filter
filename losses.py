@@ -233,9 +233,15 @@ def get_pinn_step_fn(config, train, optimize_fn):
             loss.backward()
             optimize_fn(optimizer, model.parameters(), step=state['step'])
             state['step'] += 1
+            state['ema'].update(model.parameters())
         else:
             model.eval()
+
+            ema = state['ema']
+            ema.store(model.parameters())
+            ema.copy_to(model.parameters())
             loss, loss_e, loss_d = loss_fn(model, batch)
+            ema.restore(model.parameters())
 
         return loss, loss_e, loss_d
 

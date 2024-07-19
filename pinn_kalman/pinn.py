@@ -62,9 +62,7 @@ class PINN_Net(nn.Module):
         def average_epe(f, g):
             return torch.mean(torch.sqrt(torch.sum((f - g) ** 2, dim=1)), dim=(0, 1, 2))
 
-        weights = [12.7, 5.5, 4.35, 3.9, 3.4, 1.1]
-
-        assert (len(weights) == len(prediction))
+        weights = [12.7, 5.5, 4.35, 3.9, 3.4, 1.1][:len(prediction)]
 
         loss = 0
         for i, weight in enumerate(weights):

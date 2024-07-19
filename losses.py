@@ -213,8 +213,8 @@ def get_pinn_step_fn(config, train, optimize_fn):
 
         f1, f2, coord, t, target = batch
 
-        prediction = model(f1, f2, coord, t)
-        mse_data = model.multiscale_data_mse(prediction, target[:,:2])
+        veloc_pred, pressure_pred = model(f1, f2, coord, t)
+        mse_data = model.multiscale_data_mse(veloc_pred, pressure_pred, target)
         return mse_data, mse_data, mse_data
         #mse_equation = model.equation_mse_dimensionless(x, y, t, prediction, 100000.0)
 

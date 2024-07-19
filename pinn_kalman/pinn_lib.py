@@ -45,6 +45,9 @@ def train(config, workdir):
     state = restore_checkpoint(checkpoint_meta_dir, state, config.device)
     initial_step = int(state['step'])
 
+    print(f"checkpoint_dir:{checkpoint_dir}")
+    print(f"checkpoint_meta_dir:{checkpoint_meta_dir}")
+
     # Build data iterators
     train_ds, eval_ds = datasets.get_dataset(config,
                                              uniform_dequantization=config.data.uniform_dequantization)
@@ -80,10 +83,6 @@ def train(config, workdir):
             logging.info("step: %d, training_loss: %.5e = (%.5e, %.5e)" % (step, loss.item(), loss_e.item(), loss_d.item()))
             writer.add_scalar("training_loss", loss, step)
 
-        # Save a temporary checkpoint to resume training after pre-emption periodically
-        if step != 0 and step % config.training.snapshot_freq_for_preemption == 0:
-            save_checkpoint(checkpoint_meta_dir, state)
-
         # Report the loss on an evaluation dataset periodically
         if step % config.training.eval_freq == 0:
             try:
@@ -98,6 +97,7 @@ def train(config, workdir):
 
         # Save a temporary checkpoint to resume training after pre-emption periodically
         if step != 0 and step % config.training.snapshot_freq_for_preemption == 0:
+            print(f">>> temp checkpoint saved")
             save_checkpoint(checkpoint_meta_dir, state)
 
         # Save a checkpoint periodically and generate samples if needed

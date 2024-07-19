@@ -559,7 +559,7 @@ class LiteFlowNet(torch.nn.Module):
                                                      align_corners=False)
         flow_full_reso *= 2
         forward_flow_collection.append(flow_full_reso)
-        return forward_flow_collection
+        return forward_flow_collection, None
 
     # end
 

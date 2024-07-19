@@ -66,22 +66,28 @@ class PINN_Net(nn.Module):
         mse = torch.nn.MSELoss()
         return mse(prediction, target)
 
-    def multiscale_data_mse(self, prediction:list, target):
-        h, w = prediction[-1].shape[-2], prediction[-1].shape[-1]
+    def multiscale_data_mse(self, veloc_pred:list, pressure_pred:list, target):
+        h, w = veloc_pred[-1].shape[-2], veloc_pred[-1].shape[-1]
 
         def average_epe(f, g):
             return torch.mean(torch.sqrt(torch.sum((f - g) ** 2, dim=1)), dim=(0, 1, 2))
 
-        weights = [12.7, 5.5, 4.35, 3.9, 3.4, 1.1][:len(prediction)]
+        weights = [12.7, 5.5, 4.35, 3.9, 3.4, 1.1][:len(veloc_pred)]
 
         loss = 0
         for i, weight in enumerate(weights):
             scale_factor = 1.0 / (2 ** i)
 
-            flow = prediction[-1 - i]
-            losses = average_epe(flow * scale_factor, target * scale_factor)
+            flow = veloc_pred[-1 - i]
+            losses_flow = average_epe(flow * scale_factor, target[:,:2] * scale_factor)
 
-            loss += weight * losses
+            if pressure_pred is not None:
+                pressure = pressure_pred[-1 - i]
+                losses_pressure =average_epe(pressure, target[:,2:3])
+            else:
+                losses_pressure = 0
+
+            loss += weight * (losses_flow + losses_pressure*0.01)
 
             h = h // 2
             w = w // 2

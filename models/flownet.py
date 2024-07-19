@@ -38,14 +38,22 @@ def get_conv_decode_layer(in_channels, out_channels):
                     torch.nn.LeakyReLU(inplace=False, negative_slope=0.1))
     return layer
 
-def get_conv_flow_layer(in_channels):
+def get_conv_field_layer(in_channels, out_channels):
     layer = torch.nn.Sequential(torch.nn.Conv2d(in_channels=in_channels, out_channels=128, kernel_size=3, stride=1, padding=1),
         torch.nn.LeakyReLU(inplace=False, negative_slope=0.1),
         torch.nn.Conv2d(in_channels=128, out_channels=64, kernel_size=3, stride=1, padding=1),
         torch.nn.LeakyReLU(inplace=False, negative_slope=0.1),
         torch.nn.Conv2d(in_channels=64, out_channels=32, kernel_size=3, stride=1, padding=1),
         torch.nn.LeakyReLU(inplace=False, negative_slope=0.1),
-        torch.nn.Conv2d(in_channels=32, out_channels=2, kernel_size=3, stride=1, padding=1))
+        torch.nn.Conv2d(in_channels=32, out_channels=out_channels, kernel_size=3, stride=1, padding=1))
+    return layer
+
+def get_conv_up_layer(out_channels):
+    layer = torch.nn.Sequential(torch.nn.Conv2d(in_channels=2+out_channels, out_channels=64, kernel_size=3, stride=1, padding=1),
+        torch.nn.LeakyReLU(inplace=False, negative_slope=0.1),
+        torch.nn.Conv2d(in_channels=64, out_channels=32, kernel_size=3, stride=1, padding=1),
+        torch.nn.LeakyReLU(inplace=False, negative_slope=0.1),
+        torch.nn.Conv2d(in_channels=32, out_channels=out_channels, kernel_size=3, stride=1, padding=1))
     return layer
 
 
@@ -87,7 +95,7 @@ class Matching(nn.Module):
                         bias=False,
                         groups=2)
 
-        self.corr_conv = get_conv_flow_layer(49)
+        self.corr_conv = get_conv_field_layer(49, 2)
 
     def forward(self, feature1, feature2, flow=None):
 
@@ -111,7 +119,7 @@ class SubpixelRefinement(nn.Module):
         self.dt = config.data.dt * 0.5 ** (level+1)
 
         block_depth = config.model.feature_nums[level]*2 + 2  # feature1 + feature2 + flow(2)
-        self.flow_conv = get_conv_flow_layer(block_depth)
+        self.flow_conv = get_conv_field_layer(block_depth, 2)
 
     def forward(self, feature1, feature2, flow):
 
@@ -121,11 +129,22 @@ class SubpixelRefinement(nn.Module):
         block = torch.cat([feature1, feature2, flow], dim=1)
         return flow + self.flow_conv(block)
 
-class Regularization(torch.nn.Module):
+class PressureInfer(nn.Module):
     def __init__(self, config, level):
-        super(Regularization, self).__init__()
+        super(PressureInfer, self).__init__()
 
-        self.dt = config.data.dt * 0.5 ** (level+1)
+        block_depth = config.model.feature_nums[level]*2 + 2 + 1  # feature1 + feature2 + flow(2) + flow_norm(1)
+        self.flow_conv = get_conv_field_layer(block_depth, 1)
+
+    def forward(self, feature1, feature2, flow, p_prev=None):
+
+        if p_prev is None:
+            p_prev = 0.0
+
+        flow_norm = (flow ** 2).sum(dim=1).unsqueeze(1)
+
+        block = torch.cat([feature1, feature2, flow, flow_norm], dim=1)
+        return p_prev + self.flow_conv(block)
 
 
 class InferenceUnit(nn.Module):
@@ -134,13 +153,34 @@ class InferenceUnit(nn.Module):
         self.level = level
         self.match = Matching(config, level)
         self.refinement = SubpixelRefinement(config, level)
+        self.p_inference = PressureInfer(config, level)
 
-        # TODO: Regularization Unit
-
-    def forward(self, feature1, feature2, flow=None):
+    def forward(self, feature1, feature2, flow=None, p_prev=None):
         flow_m = self.match(feature1, feature2, flow)
         flow_s = self.refinement(feature1, feature2, flow_m)
-        return flow_s
+
+        pressure = self.p_inference(feature1, feature2, flow_s, p_prev)
+        return flow_s, pressure
+
+
+class Upsample(nn.Module):
+    def __init__(self, size):
+        super(Upsample, self).__init__()
+
+        self.up_flow = get_conv_up_layer(2)
+        self.up_pres = get_conv_up_layer(1)
+        self.size = size
+
+    def forward(self, f1, f2, flow, pres):
+        flow = F.interpolate(input=flow, size=self.size, mode='bilinear', align_corners=False)
+        pres = F.interpolate(input=pres, size=self.size, mode='bilinear', align_corners=False)
+
+        flow_block = torch.cat([f1, f2, flow], dim=1)
+        pres_block = torch.cat([f1, f2, pres], dim=1)
+
+        return flow + self.up_flow(flow_block), pres + self.up_pres(pres_block)
+
+
 
 
 class FlowNet(nn.Module):
@@ -153,21 +193,28 @@ class FlowNet(nn.Module):
         levels = [l for l in range(len(config.model.feature_nums))][::-1] # level n-1, n-2, ..., 0
         self.inference_units = nn.ModuleList([InferenceUnit(config, level) for level in levels])
 
+        self.upsample = Upsample(self.size)
+
     def forward(self, f1, f2, coord, t):
         f1_features = self.feature_extractor(f1)
         f2_features = self.feature_extractor(f2)
         
         cascaded_flow = []
+        cascaded_pressure = []
         flow = None
+        pressure = None
         for unit in self.inference_units:
             feature1 = f1_features[unit.level]
             feature2 = f2_features[unit.level]
-            flow = unit(feature1, feature2, flow)
+            flow, pressure = unit(feature1, feature2, flow)
             cascaded_flow.append(flow)
+            cascaded_pressure.append(pressure)
         
-        flow = F.interpolate(input=flow, size=self.size, mode='bilinear', align_corners=False)
+        flow, pressure = self.upsample(f1, f2, flow, pressure)
         cascaded_flow.append(flow)
-        return cascaded_flow
+        cascaded_pressure.append(pressure)
+
+        return cascaded_flow, cascaded_pressure
 
 
 if __name__ == '__main__':

@@ -230,6 +230,11 @@ def get_pinn_step_fn(config, train, optimize_fn):
             optimizer = state['optimizer']
             optimizer.zero_grad()
             loss, loss_e, loss_d = loss_fn(model, batch)
+            if loss == 0:
+                print('Nan loss skipped')
+                z = torch.tensor(-1)
+                return z,z,z
+
             loss.backward()
             optimize_fn(optimizer, model.parameters(), step=state['step'])
             state['step'] += 1

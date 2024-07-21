@@ -9,7 +9,7 @@ def get_default_configs():
   config.training.batch_size = 64
   training.n_iters = 10000
   training.snapshot_freq = 500
-  training.snapshot_freq_for_preemption = 250 ## store additional checkpoints for preemption in cloud computing environments
+  training.snapshot_freq_for_preemption = 100 ## store additional checkpoints for preemption in cloud computing environments
 
   training.log_freq = 1
   training.eval_freq = 50
@@ -34,7 +34,7 @@ def get_default_configs():
   config.optim = optim = ml_collections.ConfigDict()
   optim.weight_decay = 0
   optim.optimizer = 'Adam'
-  optim.lr = 0.0002
+  optim.lr = 0.0005
   optim.beta1 = 0.9
   optim.eps = 1e-8
   optim.warmup = 100

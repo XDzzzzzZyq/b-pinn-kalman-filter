@@ -78,6 +78,9 @@ class FeatureExtractor(nn.Module):
             x = layer(x)
             result.append(x)
 
+            if torch.isnan(x).any():
+                print('Nan feature')
+
         return result
 
 
@@ -109,7 +112,11 @@ class Matching(nn.Module):
         corr = correlation.FunctionCorrelation(feature1, feature2, stride=1)
         corr = torch.nn.functional.leaky_relu(corr)
 
-        return flow + self.corr_conv(corr)
+        flow = flow + self.corr_conv(corr)
+        if torch.isnan(flow).any():
+            print('Nan matching')
+
+        return flow
 
 
 class SubpixelRefinement(nn.Module):
@@ -127,7 +134,11 @@ class SubpixelRefinement(nn.Module):
         feature2 = project(feature2, flow, -self.dt)
 
         block = torch.cat([feature1, feature2, flow], dim=1)
-        return flow + self.flow_conv(block)
+        flow = flow + self.flow_conv(block)
+        if torch.isnan(flow).any():
+            print('Nan refinement')
+
+        return flow
 
 class PressureInfer(nn.Module):
     def __init__(self, config, level):
@@ -141,10 +152,16 @@ class PressureInfer(nn.Module):
         if p_prev is None:
             p_prev = 0.0
 
+        flow = flow.detach()
         flow_norm = (flow ** 2).sum(dim=1).unsqueeze(1)
 
-        block = torch.cat([feature1, feature2, flow, flow_norm], dim=1)
-        return p_prev + self.flow_conv(block)
+        block = torch.cat([feature1.detach(), feature2.detach(), flow, flow_norm], dim=1)
+        p_prev = p_prev + self.flow_conv(block)
+
+        if torch.isnan(p_prev).any():
+            print('Nan pressure')
+
+        return p_prev
 
 
 class InferenceUnit(nn.Module):

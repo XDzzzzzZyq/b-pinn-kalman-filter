@@ -112,7 +112,7 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     from configs.pinn.pinn_pde import get_config
     config = get_config()
-    workdir = "../workdir/pde-fn/checkpoints/checkpoint_10.pth"
+    workdir = "../workdir/pde-fn/checkpoints/checkpoint_9.pth"
 
     model = PINN_Net(config)
     model = load_checkpoint(workdir, model, config.device)
@@ -135,10 +135,9 @@ if __name__ == "__main__":
     axe[1][1].imshow(target[0, 1].cpu().detach().numpy())
     axe[1][2].imshow(target[0, 2].cpu().detach().numpy())
 
-    axe[2][0].imshow(predict[-3][0, 0].cpu().detach().numpy())
-    axe[2][1].imshow(predict[-2][0, 0].cpu().detach().numpy())
-    axe[2][2].imshow(predict[-1][0, 0].cpu().detach().numpy())
+    axe[2][0].imshow(predict[0][-1][0, 0].cpu().detach().numpy())
+    axe[2][1].imshow(predict[0][-1][0, 1].cpu().detach().numpy())
+    axe[2][2].imshow(predict[1][-1][0, 0].cpu().detach().numpy())
 
     plt.show()
-
 

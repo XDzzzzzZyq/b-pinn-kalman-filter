@@ -38,8 +38,9 @@ class PINN_Net(nn.Module):
     def __init__(self, config):
         super(PINN_Net, self).__init__()
         self.device = config.device
-        model = get_model(config)
-        self.model = torch.nn.DataParallel(model).to(self.device)
+        model = get_model(config).to(self.device)
+        model = torch.nn.DataParallel(model)
+        self.model = model
         self.mask_u, self.mask_v, self.mask_p = self.get_mask(config)
 
     def get_mask(self, config):
@@ -85,9 +86,28 @@ class PINN_Net(nn.Module):
                 pressure = pressure_pred[-1 - i]
                 losses_pressure =average_epe(pressure, target[:,2:3])
             else:
+                print("no pressure predicted")
                 losses_pressure = 0
 
-            loss += weight * (losses_flow + losses_pressure*0.01)
+            l = weight * (losses_flow + losses_pressure*0.005)
+
+            if torch.isnan(l):
+                print("######  NAN detected ######")
+
+                l = 0
+                print(torch.isnan(target[:,:2]).any())
+                print(torch.isnan(target[:,2:3]).any())
+                print(torch.isnan(losses_flow).any())
+                print(torch.isnan(losses_pressure).any())
+
+                for f in veloc_pred:
+                    print(f"velc", torch.isnan(f).any())
+
+                for f in pressure_pred:
+                    print(f"pres", torch.isnan(f).any())
+
+
+            loss += l
 
             h = h // 2
             w = w // 2

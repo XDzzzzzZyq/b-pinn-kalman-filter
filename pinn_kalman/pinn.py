@@ -89,7 +89,7 @@ class PINN_Net(nn.Module):
                 print("no pressure predicted")
                 losses_pressure = 0
 
-            l = weight * (losses_flow + losses_pressure*0.005)
+            l = weight * (losses_flow*0.0 + losses_pressure*0.005)
 
             if torch.isnan(l):
                 print("######  NAN detected ######")

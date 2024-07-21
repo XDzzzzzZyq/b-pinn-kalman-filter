@@ -74,12 +74,13 @@ class FeatureExtractor(nn.Module):
 
     def forward(self, x):
         result = []
-        for layer in self.feature_extractors:
+        for idx, layer in enumerate(self.feature_extractors):
+            temp = x
             x = layer(x)
             result.append(x)
 
             if torch.isnan(x).any():
-                print('Nan feature')
+                print(f'Nan feature {idx}', torch.isnan(temp).any())
 
         return result
 
@@ -144,19 +145,29 @@ class PressureInfer(nn.Module):
     def __init__(self, config, level):
         super(PressureInfer, self).__init__()
 
+        self.pres_upsample = torch.nn.ConvTranspose2d(
+                        in_channels=1,
+                        out_channels=1,
+                        kernel_size=4,
+                        stride=2,
+                        padding=1,
+                        bias=False)
+
         block_depth = config.model.feature_nums[level]*2 + 2 + 1  # feature1 + feature2 + flow(2) + flow_norm(1)
-        self.flow_conv = get_conv_field_layer(block_depth, 1)
+        self.pres_conv = get_conv_field_layer(block_depth, 1)
 
     def forward(self, feature1, feature2, flow, p_prev=None):
 
         if p_prev is None:
             p_prev = 0.0
+        else:
+            p_prev = self.pres_upsample(p_prev)
 
         flow = flow.detach()
         flow_norm = (flow ** 2).sum(dim=1).unsqueeze(1)
 
         block = torch.cat([feature1.detach(), feature2.detach(), flow, flow_norm], dim=1)
-        p_prev = p_prev + self.flow_conv(block)
+        p_prev = p_prev + self.pres_conv(block)
 
         if torch.isnan(p_prev).any():
             print('Nan pressure')
@@ -223,7 +234,7 @@ class FlowNet(nn.Module):
         for unit in self.inference_units:
             feature1 = f1_features[unit.level]
             feature2 = f2_features[unit.level]
-            flow, pressure = unit(feature1, feature2, flow)
+            flow, pressure = unit(feature1, feature2, flow, pressure)
             cascaded_flow.append(flow)
             cascaded_pressure.append(pressure)
         

@@ -115,29 +115,48 @@ if __name__ == "__main__":
     workdir = "../workdir/pde-fn/checkpoints/checkpoint_9.pth"
 
     model = PINN_Net(config)
-    model = load_checkpoint(workdir, model, config.device)
+    #model = load_checkpoint(workdir, model, config.device)
 
         # Build data iterators
     _, eval_ds = datasets.get_dataset(config,
                                              uniform_dequantization=config.data.uniform_dequantization)
     eval_iter = iter(eval_ds)  # pytype: disable=wrong-arg-types
     f1, f2, coord, t, target = unbatch(config, next(eval_iter))
+    veloc_pred, pressure_pred = model(f1, f2, coord, t)
 
-    predict = model(f1, f2, coord, t)
+    mode = 2
+    if mode == 0:
 
-    fig, axe = plt.subplots(nrows=3, ncols=3, figsize=(40, 20))
+        fig, axe = plt.subplots(nrows=3, ncols=3, figsize=(40, 20))
 
-    axe[0][0].imshow(coord[0, 0].cpu().detach().numpy())
-    axe[0][1].imshow(coord[0, 1].cpu().detach().numpy())
-    axe[0][2].imshow(f2[0, 0].cpu().detach().numpy())
+        axe[0][0].imshow(coord[0, 0].cpu().detach().numpy())
+        axe[0][1].imshow(coord[0, 1].cpu().detach().numpy())
+        axe[0][2].imshow(f2[0, 0].cpu().detach().numpy())
 
-    axe[1][0].imshow(target[0, 0].cpu().detach().numpy())
-    axe[1][1].imshow(target[0, 1].cpu().detach().numpy())
-    axe[1][2].imshow(target[0, 2].cpu().detach().numpy())
+        axe[1][0].imshow(target[0, 0].cpu().detach().numpy())
+        axe[1][1].imshow(target[0, 1].cpu().detach().numpy())
+        axe[1][2].imshow(target[0, 2].cpu().detach().numpy())
 
-    axe[2][0].imshow(predict[0][-1][0, 0].cpu().detach().numpy())
-    axe[2][1].imshow(predict[0][-1][0, 1].cpu().detach().numpy())
-    axe[2][2].imshow(predict[1][-1][0, 0].cpu().detach().numpy())
+        axe[2][0].imshow(veloc_pred[-1][0, 0].cpu().detach().numpy())
+        axe[2][1].imshow(veloc_pred[-1][0, 1].cpu().detach().numpy())
+        axe[2][2].imshow(pressure_pred[-1][0, 0].cpu().detach().numpy())
 
-    plt.show()
+        plt.show()
+
+    elif mode == 1:
+        from torchview import draw_graph
+
+        model_graph = draw_graph(model, input_data=(f1, f2, coord, t), device='cuda')
+        model_graph.visual_graph
+
+    else:
+
+        mse_data = model.multiscale_data_mse(veloc_pred, pressure_pred, target)
+        for extractor in model.model.module.feature_extractor.feature_extractors:
+            for layer in extractor:
+                if isinstance(layer, torch.nn.Conv2d):
+                    grad = torch.autograd.grad(mse_data, layer.weight, retain_graph=True)
+                    print(grad)
+                    break
+
 

@@ -11,7 +11,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from models.ddpm import UNet, MLP
-from models.flownet import FlowNet
+from models.flownet import FlowNet, PressureNet
 from models.liteflownet import LiteFlowNet
 import torch.nn.functional as F
 
@@ -38,9 +38,10 @@ class PINN_Net(nn.Module):
     def __init__(self, config):
         super(PINN_Net, self).__init__()
         self.device = config.device
-        model = get_model(config).to(self.device)
+        flownet = get_model(config).to(self.device)
         #model = torch.nn.DataParallel(model)
-        self.model = model
+        self.flownet = flownet
+        self.pressurenet = PressureNet(config).to(self.device)
         self.mask_u, self.mask_v, self.mask_p = self.get_mask(config)
 
     def get_mask(self, config):
@@ -58,64 +59,9 @@ class PINN_Net(nn.Module):
         return mask1, mask2, mask3
 
     def forward(self, f1, f2, coord, t):
-        predict = self.model(f1, f2, coord, t)
-        return predict
-
-    # derive loss for data
-    # 类内方法：求数据点的loss
-    def data_mse(self, prediction, target):
-        mse = torch.nn.MSELoss()
-        return mse(prediction, target)
-
-    def multiscale_data_mse(self, veloc_pred:list, pressure_pred:list, target):
-        h, w = veloc_pred[-1].shape[-2], veloc_pred[-1].shape[-1]
-
-        def average_epe(f, g):
-            return torch.mean(torch.sqrt(torch.sum((f - g) ** 2, dim=1)), dim=(0, 1, 2))
-
-        weights = [12.7, 5.5, 4.35, 3.9, 3.4, 1.1][:len(veloc_pred)]
-
-        loss = 0
-        for i, weight in enumerate(weights):
-            scale_factor = 1.0 / (2 ** i)
-
-            flow = veloc_pred[-1 - i]
-            losses_flow = average_epe(flow * scale_factor, target[:,:2] * scale_factor)
-
-            if pressure_pred is not None:
-                pressure = pressure_pred[-1 - i]
-                losses_pressure = average_epe(pressure, target[:,2:3])
-            else:
-                print("no pressure predicted")
-                losses_pressure = 0
-
-            l = weight * (losses_flow + losses_pressure*0.005)
-
-            if torch.isnan(l):
-                print("######  NAN detected ######")
-
-                l = 0
-                print(torch.isnan(target[:,:2]).any())
-                print(torch.isnan(target[:,2:3]).any())
-                print(torch.isnan(losses_flow).any())
-                print(torch.isnan(losses_pressure).any())
-
-                for f in veloc_pred:
-                    print(f"velc", torch.isnan(f).any())
-
-                for f in pressure_pred:
-                    print(f"pres", torch.isnan(f).any())
-
-
-            loss += l
-
-            h = h // 2
-            w = w // 2
-
-            target = F.interpolate(target, (h, w), mode='bilinear', align_corners=False)
-
-        return loss
-
+        flow = self.flownet(f1, f2, coord, t)
+        pressure = self.pressurenet(flow)
+        return flow, pressure
 
     def advection_mse(self, x, y, t, prediction):
         return None

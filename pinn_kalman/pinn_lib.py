@@ -32,8 +32,9 @@ def train(config, workdir):
 
     model = PINN_Net(config)
     ema = ExponentialMovingAverage(model.parameters(), decay=config.model.ema_rate)
-    optimizer = losses.get_optimizer(config, model.parameters())
-    state = dict(optimizer=optimizer, model=model, ema=ema, step=0)
+    optimizer_flow = losses.get_optimizer(config, model.flownet.parameters())
+    optimizer_pres = losses.get_optimizer(config, model.pressurenet.parameters())
+    state = dict(optimizer=(optimizer_flow, optimizer_pres), model=model, ema=ema, step=0)
 
     # Create checkpoints directory
     checkpoint_dir = os.path.join(workdir, "checkpoints")
@@ -77,11 +78,12 @@ def train(config, workdir):
             batch = next(train_iter)
 
         # Execute one training step
-        loss, loss_e, loss_d = train_step_fn(state, unbatch(config, batch))
+        loss, v_loss, p_loss = train_step_fn(state, unbatch(config, batch))
 
         if step % config.training.log_freq == 0:
-            logging.info("step: %d, training_loss: %.5e = (%.5e, %.5e)" % (step, loss.item(), loss_e.item(), loss_d.item()))
-            writer.add_scalar("training_loss", loss, step)
+            logging.info("step: %d, training_loss: %.5e = (%.5e, %.5e)" % (step, loss.item(), v_loss.item(), p_loss.item()))
+            writer.add_scalar("training_vel_loss", v_loss, step)
+            writer.add_scalar("training_prs_loss", p_loss, step)
 
         # Report the loss on an evaluation dataset periodically
         if step % config.training.eval_freq == 0:
@@ -89,11 +91,13 @@ def train(config, workdir):
                 batch = next(eval_iter)
             except StopIteration:
                 eval_iter = iter(eval_ds)
+
                 batch = next(eval_iter)
 
-            eval_loss, eval_loss_e, eval_loss_d = eval_step_fn(state, unbatch(config, batch))
-            logging.info("step: %d, eval_loss: %.5e = (%.5e, %.5e)" % (step, eval_loss.item(), eval_loss_e.item(), eval_loss_d.item()))
-            writer.add_scalar("eval_loss", eval_loss.item(), step)
+            loss, v_loss, p_loss = eval_step_fn(state, unbatch(config, batch))
+            logging.info("step: %d, eval_loss: %.5e = (%.5e, %.5e)" % (step, loss.item(), v_loss.item(), p_loss.item()))
+            writer.add_scalar("eval_vel_loss", v_loss, step)
+            writer.add_scalar("eval_prs_loss", p_loss, step)
 
         # Save a temporary checkpoint to resume training after pre-emption periodically
         if step != 0 and step % config.training.snapshot_freq_for_preemption == 0:
@@ -112,7 +116,7 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     from configs.pinn.pinn_pde import get_config
     config = get_config()
-    workdir = "../workdir/pde-pfn/checkpoints-meta/checkpoint.pth"
+    workdir = "../workdir/pde-pufn/checkpoints-meta/checkpoint.pth"
 
     model = PINN_Net(config)
     model = load_checkpoint(workdir, model, config.device)
@@ -139,7 +143,7 @@ if __name__ == "__main__":
 
         axe[2][0].imshow(veloc_pred[-1][0, 0].cpu().detach().numpy())
         axe[2][1].imshow(veloc_pred[-1][0, 1].cpu().detach().numpy())
-        axe[2][2].imshow(pressure_pred[-1][0, 0].cpu().detach().numpy())
+        axe[2][2].imshow(pressure_pred[0, 0].cpu().detach().numpy())
 
         plt.show()
 

@@ -128,69 +128,31 @@ class SubpixelRefinement(nn.Module):
         block = torch.cat([feature1, feature2, flow], dim=1)
         return flow + self.flow_conv(block)
 
-class PressureInfer(nn.Module):
-    def __init__(self, config, level):
-        super(PressureInfer, self).__init__()
-
-        self.pres_upsample = torch.nn.ConvTranspose2d(
-                        in_channels=1,
-                        out_channels=1,
-                        kernel_size=4,
-                        stride=2,
-                        padding=1,
-                        bias=False)
-
-        block_depth = config.model.feature_nums[level]*2 + 2 + 1 + 1  # flow(2) + flow_norm(1) + prev
-        self.pres_conv = get_conv_field_layer(block_depth, 1)
-
-    def forward(self, feature1, feature2, flow, p_prev=None):
-
-        flow = flow.detach()
-        flow_norm = -(flow ** 2).sum(dim=1).unsqueeze(1)
-
-        if p_prev is None:
-            p_prev = torch.zeros_like(flow_norm)
-        else:
-            p_prev = self.pres_upsample(p_prev)
-
-        block = torch.cat([feature1.detach(), feature2.detach(), flow, flow_norm, p_prev], dim=1)
-        return p_prev + self.pres_conv(block)
-
-
 class InferenceUnit(nn.Module):
     def __init__(self, config, level):
         super(InferenceUnit, self).__init__()
         self.level = level
         self.match = Matching(config, level)
         self.refinement = SubpixelRefinement(config, level)
-        self.p_inference = PressureInfer(config, level)
 
     def forward(self, feature1, feature2, flow=None, p_prev=None):
         flow_m = self.match(feature1, feature2, flow)
         flow_s = self.refinement(feature1, feature2, flow_m)
-
-        pressure = self.p_inference(feature1, feature2, flow_s, p_prev)
-        return flow_s, pressure
+        return flow_s
 
 
 class Upsample(nn.Module):
     def __init__(self, size):
         super(Upsample, self).__init__()
 
-        self.up_flow = get_conv_up_layer(2)
-        self.up_pres = get_conv_up_layer(1)
+        self.up = get_conv_up_layer(2)
         self.size = size
 
-    def forward(self, f1, f2, flow, pres):
-        flow = F.interpolate(input=flow, size=self.size, mode='bilinear', align_corners=False)
-        pres = F.interpolate(input=pres, size=self.size, mode='bilinear', align_corners=False)
+    def forward(self, f1, f2, x):
+        x = F.interpolate(input=x, size=self.size, mode='bilinear', align_corners=False)
+        block = torch.cat([f1, f2, x], dim=1)
 
-        flow_block = torch.cat([f1, f2, flow], dim=1)
-        pres_block = torch.cat([f1, f2, pres], dim=1)
-
-        return flow + self.up_flow(flow_block), pres + self.up_pres(pres_block)
-
-
+        return x + self.up(block)
 
 
 class FlowNet(nn.Module):
@@ -210,21 +172,115 @@ class FlowNet(nn.Module):
         f2_features = self.feature_extractor(f2)
         
         cascaded_flow = []
-        cascaded_pressure = []
         flow = None
-        pressure = None
         for unit in self.inference_units:
             feature1 = f1_features[unit.level]
             feature2 = f2_features[unit.level]
-            flow, pressure = unit(feature1, feature2, flow, pressure)
+            flow= unit(feature1, feature2, flow)
             cascaded_flow.append(flow)
-            cascaded_pressure.append(pressure)
         
-        flow, pressure = self.upsample(f1, f2, flow, pressure)
+        flow = self.upsample(f1, f2, flow)
         cascaded_flow.append(flow)
-        cascaded_pressure.append(pressure)
 
-        return cascaded_flow, cascaded_pressure
+        return cascaded_flow
+
+    def multiscale_data_mse(self, veloc_pred: list[torch.Tensor], target):
+        h, w = veloc_pred[-1].shape[-2], veloc_pred[-1].shape[-1]
+
+        weights = [12.7, 5.5, 4.35, 3.9, 3.4, 1.1][:len(veloc_pred)]
+        error_fn = torch.nn.MSELoss()
+
+        v_loss = 0
+        for i, weight in enumerate(weights):
+            scale_factor = 1.0 / (2 ** i)
+
+            flow = veloc_pred[-1 - i]
+            losses_flow = error_fn(flow * scale_factor, target[:, :2] * scale_factor)
+
+            v_l = weight * losses_flow
+
+            v_loss += v_l
+
+            h = h // 2
+            w = w // 2
+
+            target = F.interpolate(target, (h, w), mode='bilinear', align_corners=False)
+
+        return v_loss
+
+from . import layers
+def get_double_conv(in_channels, out_channels):
+    layer = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
+        nn.ReLU(inplace=True),
+        nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
+        nn.ReLU(inplace=True))
+
+    return layer
+def get_down_layer(in_channels, out_channels):
+    layer = nn.Sequential(
+            nn.MaxPool2d(2),
+            layers.ResidualBlock(in_channels, out_channels)
+        )
+    return layer
+def get_up_layer(in_channels, out_channels):
+    return nn.Sequential(
+            nn.ConvTranspose2d(in_channels, out_channels, kernel_size=2, stride=2)
+        )
+
+class PressureNet(nn.Module):
+    def __init__(self, config):
+        super(PressureNet, self).__init__()
+
+        channels = config.model.feature_nums
+        self.first = get_double_conv(2, channels[0])
+
+        ch_i = channels[0]
+        self.down = []
+        for ch_o in channels[1:]:
+            self.down.append(get_down_layer(ch_i, ch_o))
+            ch_i = ch_o
+        self.down = nn.ModuleList(self.down)
+
+        ch_i = channels[-1]
+        self.up = []
+        self.up_conv = []
+        for ch_o in channels[-2::-1]:
+            self.up.append(get_up_layer(ch_i, ch_o))
+            self.up_conv.append(layers.ResidualBlock(ch_o*2 + 3, ch_o))
+            ch_i = ch_o
+        self.up = nn.ModuleList(self.up)
+        self.up_conv = nn.ModuleList(self.up_conv)
+
+        self.end = get_double_conv(channels[0], 1)
+
+    def forward(self, cascaded_flow):
+        x = self.first(cascaded_flow[-1].detach())
+        features = [x]
+
+        for down in self.down:
+            x = down(x)
+            features.append(x)
+        features.pop(-1)
+
+        for idx in range(len(features)):
+            feature = features[-1-idx]
+
+            flow = cascaded_flow[idx+2].detach().clone()
+            flow_norm = -(flow ** 2).sum(dim=1).unsqueeze(1)
+
+            up = self.up[idx]
+            up_conv = self.up_conv[idx]
+
+            x = up(x)
+            block = torch.cat([feature, x, flow, flow_norm], dim=1)
+            x = up_conv(block)
+
+        x = self.end(x)
+        return x
+
+    def data_mse(self, pressure, target):
+        error_fn = torch.nn.MSELoss()
+        return error_fn(pressure, target[:,2:3]) * 0.005
 
 
 if __name__ == '__main__':

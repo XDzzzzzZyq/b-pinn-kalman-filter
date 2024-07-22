@@ -19,6 +19,7 @@
 import torch
 import torch.optim as optim
 import numpy as np
+import torch.nn.functional as F
 from models import utils as mutils
 from sde_lib import VESDE, VPSDE
 
@@ -215,48 +216,62 @@ def check_for_nans(model):
     return False
 
 def get_pinn_step_fn(config, train, optimize_fn):
-    def loss_fn(model, batch):
+    def flow_loss_fn(model, batch):
 
         f1, f2, coord, t, target = batch
 
-        veloc_pred, pressure_pred = model(f1, f2, coord, t)
-        mse_data = model.multiscale_data_mse(veloc_pred, pressure_pred, target)
-        return mse_data, mse_data, mse_data
-        #mse_equation = model.equation_mse_dimensionless(x, y, t, prediction, 100000.0)
+        veloc_pred = model(f1, f2, coord, t)
+        v_loss = model.multiscale_data_mse(veloc_pred, target)
+        return v_loss
 
-        #loss = 1e8*mse_equation + 1e-2*mse_data
-        #return loss, mse_equation, mse_data
+    def pres_loss_fn(model, batch):
+
+        f1, f2, coord, t, target = batch
+
+        cascaded_flow = [target[:,0:2]]
+        for i in range(len(config.model.feature_nums)):
+            flow = cascaded_flow[-1]
+            size = (flow.shape[2]//2, flow.shape[3]//2)
+            flow = F.interpolate(input=flow, size=size, mode='bilinear', align_corners=False)
+            cascaded_flow.append(flow)
+
+        pres_pred = model(cascaded_flow[::-1])
+        p_loss = model.data_mse(pres_pred, target)
+        return p_loss
 
     def step_fn(state, batch):
         model = state['model']
+        flownet = model.flownet
+        pressurenet = model.pressurenet
 
         if train:
-            model.train()
+            optimizer_flow, optimizer_pres = state['optimizer']
+            '''
+            
+            Flow Net Rraining
+            
+            '''
+            flownet.train()
 
-            optimizer = state['optimizer']
-            optimizer.zero_grad()
-            loss, loss_e, loss_d = loss_fn(model, batch)
+            optimizer_flow.zero_grad()
+            v_loss = flow_loss_fn(flownet, batch)
 
-            for unit in model.model.inference_units:
-                layer = unit.p_inference.pres_conv[0]
-                w = layer.weight
-                grad = torch.autograd.grad(loss, w, retain_graph=True)[0]
-                #print(torch.isnan(w).any().item(), torch.isinf(w).any().item(), torch.isnan(grad).any().item(), torch.isinf(grad).any().item())
-                if torch.isnan(grad).any():
-                    print(">>> Nan Grad Detected <<<")
-                    return loss, loss_e, loss_d
-
-            loss.backward()
-            optimize_fn(optimizer, model.parameters(), step=state['step'])
+            v_loss.backward()
+            optimize_fn(optimizer_flow, flownet.parameters(), step=state['step'])
 
             '''
-            for layer in model.model.inference_units[0].p_inference.pres_conv:
-                if isinstance(layer, torch.nn.Conv2d):
-                    w = layer.weight
-                    print(torch.isnan(w).any().item(), torch.isinf(w).any().item())
-
-            print("<<<< Post backward")
+            
+            Pressure Net Training
+            
             '''
+
+            pressurenet.train()
+
+            optimizer_pres.zero_grad()
+            p_loss = pres_loss_fn(pressurenet, batch)
+
+            p_loss.backward()
+            optimize_fn(optimizer_pres, pressurenet.parameters(), step=state['step'])
 
             state['step'] += 1
             state['ema'].update(model.parameters())
@@ -267,9 +282,12 @@ def get_pinn_step_fn(config, train, optimize_fn):
             ema = state['ema']
             ema.store(model.parameters())
             ema.copy_to(model.parameters())
-            loss, loss_e, loss_d = loss_fn(model, batch)
+            v_loss = flow_loss_fn(flownet, batch)
+            p_loss = pres_loss_fn(pressurenet, batch)
             ema.restore(model.parameters())
 
-        return loss, loss_e, loss_d
+        loss = v_loss + p_loss
+
+        return loss, v_loss, p_loss
 
     return step_fn

@@ -112,10 +112,10 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     from configs.pinn.pinn_pde import get_config
     config = get_config()
-    workdir = "../workdir/pde-fn/checkpoints/checkpoint_9.pth"
+    workdir = "../workdir/pde-pfn/checkpoints-meta/checkpoint.pth"
 
     model = PINN_Net(config)
-    #model = load_checkpoint(workdir, model, config.device)
+    model = load_checkpoint(workdir, model, config.device)
 
         # Build data iterators
     _, eval_ds = datasets.get_dataset(config,
@@ -124,7 +124,7 @@ if __name__ == "__main__":
     f1, f2, coord, t, target = unbatch(config, next(eval_iter))
     veloc_pred, pressure_pred = model(f1, f2, coord, t)
 
-    mode = 2
+    mode = 0
     if mode == 0:
 
         fig, axe = plt.subplots(nrows=3, ncols=3, figsize=(40, 20))

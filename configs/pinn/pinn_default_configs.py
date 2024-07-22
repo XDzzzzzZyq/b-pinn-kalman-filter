@@ -7,11 +7,11 @@ def get_default_configs():
   # training
   config.training = training = ml_collections.ConfigDict()
   config.training.batch_size = 64
-  training.n_iters = 10000
-  training.snapshot_freq = 500
-  training.snapshot_freq_for_preemption = 100 ## store additional checkpoints for preemption in cloud computing environments
+  training.n_iters = 50000
+  training.snapshot_freq = 5000
+  training.snapshot_freq_for_preemption = 250 ## store additional checkpoints for preemption in cloud computing environments
 
-  training.log_freq = 1
+  training.log_freq = 5
   training.eval_freq = 50
 
 
@@ -28,7 +28,7 @@ def get_default_configs():
   config.model = model = ml_collections.ConfigDict()
   model.ema_rate = 0.9
   model.arch = 'flownet'
-  model.feature_nums = [16, 32, 64, 96] # 4 levels of features
+  model.feature_nums = [16, 32, 64, 96, 128] # 4 levels of features
 
   # optimization
   config.optim = optim = ml_collections.ConfigDict()

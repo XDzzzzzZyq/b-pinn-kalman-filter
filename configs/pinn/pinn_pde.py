@@ -8,6 +8,6 @@ def get_config():
   data = config.data
   data.dataset = 'PDE'
   data.dt = 1.75
-  data.time_trim = 100
+  data.time_trim = 0
 
   return config

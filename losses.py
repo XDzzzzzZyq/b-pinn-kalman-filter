@@ -233,43 +233,33 @@ def get_pinn_step_fn(config, train, optimize_fn):
         if train:
             model.train()
 
-            state['ema'].store(model.parameters())
-
             optimizer = state['optimizer']
             optimizer.zero_grad()
             loss, loss_e, loss_d = loss_fn(model, batch)
 
-            '''
-            print(">>>> Pre backward")
-            for extractor in model.model.module.feature_extractor.feature_extractors:
-                for layer in extractor:
-                    if isinstance(layer, torch.nn.Conv2d):
-                        w = layer.weight
-                        grad = torch.autograd.grad(loss, w, retain_graph=True)[0]
-                        print(torch.isnan(w).any().item(), torch.isinf(w).any().item(),
-                              torch.isnan(grad).any().item(), torch.isinf(grad).any().item(),
-                              (grad.sum()!=0).item())
-            '''
+            for unit in model.model.inference_units:
+                layer = unit.p_inference.pres_conv[0]
+                w = layer.weight
+                grad = torch.autograd.grad(loss, w, retain_graph=True)[0]
+                #print(torch.isnan(w).any().item(), torch.isinf(w).any().item(), torch.isnan(grad).any().item(), torch.isinf(grad).any().item())
+                if torch.isnan(grad).any():
+                    print(">>> Nan Grad Detected <<<")
+                    return loss, loss_e, loss_d
 
             loss.backward()
             optimize_fn(optimizer, model.parameters(), step=state['step'])
 
             '''
-            for extractor in model.model.module.feature_extractor.feature_extractors:
-                for layer in extractor:
-                    if isinstance(layer, torch.nn.Conv2d):
-                        w = layer.weight
-                        print(torch.isnan(w).any().item(), torch.isinf(w).any().item())
+            for layer in model.model.inference_units[0].p_inference.pres_conv:
+                if isinstance(layer, torch.nn.Conv2d):
+                    w = layer.weight
+                    print(torch.isnan(w).any().item(), torch.isinf(w).any().item())
 
             print("<<<< Post backward")
             '''
 
-            if check_for_nans(model):
-                print("Nan skip")
-                state['ema'].copy_to(model.parameters())
-            else:
-                state['step'] += 1
-                state['ema'].update(model.parameters())
+            state['step'] += 1
+            state['ema'].update(model.parameters())
 
         else:
             model.eval()

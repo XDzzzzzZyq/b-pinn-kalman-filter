@@ -75,12 +75,8 @@ class FeatureExtractor(nn.Module):
     def forward(self, x):
         result = []
         for idx, layer in enumerate(self.feature_extractors):
-            temp = x
             x = layer(x)
             result.append(x)
-
-            if torch.isnan(x).any():
-                print(f'Nan feature {idx}', torch.isnan(temp).any())
 
         return result
 
@@ -113,12 +109,7 @@ class Matching(nn.Module):
         corr = correlation.FunctionCorrelation(feature1, feature2, stride=1)
         corr = torch.nn.functional.leaky_relu(corr)
 
-        flow = flow + self.corr_conv(corr)
-        if torch.isnan(flow).any():
-            print('Nan matching')
-
-        return flow
-
+        return flow + self.corr_conv(corr)
 
 class SubpixelRefinement(nn.Module):
     def __init__(self, config, level):
@@ -135,11 +126,7 @@ class SubpixelRefinement(nn.Module):
         feature2 = project(feature2, flow, -self.dt)
 
         block = torch.cat([feature1, feature2, flow], dim=1)
-        flow = flow + self.flow_conv(block)
-        if torch.isnan(flow).any():
-            print('Nan refinement')
-
-        return flow
+        return flow + self.flow_conv(block)
 
 class PressureInfer(nn.Module):
     def __init__(self, config, level):
@@ -153,26 +140,21 @@ class PressureInfer(nn.Module):
                         padding=1,
                         bias=False)
 
-        block_depth = config.model.feature_nums[level]*2 + 2 + 1  # feature1 + feature2 + flow(2) + flow_norm(1)
+        block_depth = config.model.feature_nums[level]*2 + 2 + 1 + 1  # flow(2) + flow_norm(1) + prev
         self.pres_conv = get_conv_field_layer(block_depth, 1)
 
     def forward(self, feature1, feature2, flow, p_prev=None):
 
+        flow = flow.detach()
+        flow_norm = -(flow ** 2).sum(dim=1).unsqueeze(1)
+
         if p_prev is None:
-            p_prev = 0.0
+            p_prev = torch.zeros_like(flow_norm)
         else:
             p_prev = self.pres_upsample(p_prev)
 
-        flow = flow.detach()
-        flow_norm = (flow ** 2).sum(dim=1).unsqueeze(1)
-
-        block = torch.cat([feature1.detach(), feature2.detach(), flow, flow_norm], dim=1)
-        p_prev = p_prev + self.pres_conv(block)
-
-        if torch.isnan(p_prev).any():
-            print('Nan pressure')
-
-        return p_prev
+        block = torch.cat([feature1.detach(), feature2.detach(), flow, flow_norm, p_prev], dim=1)
+        return p_prev + self.pres_conv(block)
 
 
 class InferenceUnit(nn.Module):

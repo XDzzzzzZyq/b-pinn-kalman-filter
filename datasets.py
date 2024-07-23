@@ -112,7 +112,8 @@ class PDEDataset(Dataset):
         x_t = sample[1]
         x_p = sample[0]
 
-        return x_p[2:3], x_t[2:3], x_t[0:2], t, x_t[3:]
+        return x_p[2:3], x_t[2:3], x_t[0:1], x_t[1:2], t, x_t[3:]
+             #    f1,       f2,       x,        y,     t,    target
 
 
 

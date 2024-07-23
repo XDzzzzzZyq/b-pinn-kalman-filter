@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from op import correlation
+import functools
 
 temp_grid = {}
 def project(f, u, dt):
@@ -63,6 +64,12 @@ class FeatureExtractor(nn.Module):
         self.C, self.H, self.W = config.data.num_channels, config.data.image_size, config.data.image_size
         self.fln = len(config.model.feature_nums)  # num of feature layers
 
+        self.spatial_emb = functools.partial(
+            layers.get_spatial_embedding,
+            omega=config.model.spatial_embed_omega,
+            s=config.model.spatial_embed_s_flow)
+        self.semb_down = torch.nn.AvgPool2d(kernel_size=2, stride=2, padding=0)
+
         feature_extractors = []
         ch_i = self.C
         for i in range(self.fln):
@@ -72,11 +79,16 @@ class FeatureExtractor(nn.Module):
 
         self.feature_extractors = nn.ModuleList(feature_extractors)
 
-    def forward(self, x):
+    def forward(self, f, x, y, t):
         result = []
+        semb = self.spatial_emb(x, y)
         for idx, layer in enumerate(self.feature_extractors):
-            x = layer(x)
-            result.append(x)
+            channel = f.shape[1]
+            temb = layers.get_timestep_embedding(t, channel)[:,:,None,None]
+
+            f = layer(f + semb + temb)
+            result.append(f)
+            semb = self.semb_down(semb)
 
         return result
 
@@ -167,9 +179,9 @@ class FlowNet(nn.Module):
 
         self.upsample = Upsample(self.size)
 
-    def forward(self, f1, f2, coord, t):
-        f1_features = self.feature_extractor(f1)
-        f2_features = self.feature_extractor(f2)
+    def forward(self, f1, f2, x, y, t):
+        f1_features = self.feature_extractor(f1, x, y, t)
+        f2_features = self.feature_extractor(f2, x, y, t)
         
         cascaded_flow = []
         flow = None
@@ -231,9 +243,14 @@ class PressureNet(nn.Module):
     def __init__(self, config):
         super(PressureNet, self).__init__()
 
-        channels = config.model.feature_nums
+        self.channels = channels = config.model.feature_nums
         self.flow_feature_nums = flow_feature_nums = 32
         self.flow_feature = get_double_res(3, flow_feature_nums)
+        self.spatial_emb = functools.partial(
+            layers.get_spatial_embedding,
+            omega=config.model.spatial_embed_omega,
+            s=config.model.spatial_embed_s_pres)
+        self.semb_down = torch.nn.AvgPool2d(kernel_size=2, stride=2, padding=0)
 
         self.first = get_double_res(flow_feature_nums, channels[0])
 
@@ -266,10 +283,22 @@ class PressureNet(nn.Module):
         block = torch.cat([flow, flow_norm], dim=1)
         return self.flow_feature(block)
 
-    def forward(self, cascaded_flow, coord, t):
+    def get_semb_list(self, x, y):
+        semb = self.spatial_emb(x, y)
+        semb_list = [semb]
+
+        for i in range(len(self.channels)-2):
+            semb = self.semb_down(semb)
+            semb_list.append(semb)
+
+        return semb_list
+
+    def forward(self, cascaded_flow, x, y, t):
 
         temb = layers.get_timestep_embedding(t, self.flow_feature_nums)[:,:,None,None]
-        x = self.get_norm_feature(cascaded_flow[-1].detach().clone())
+        semb = self.get_semb_list(x, y)
+
+        x = self.get_norm_feature(cascaded_flow[-1].detach().clone()) + temb + semb[0]
         x = self.first(x)
         features = [x]
 
@@ -281,7 +310,7 @@ class PressureNet(nn.Module):
 
         for idx in range(len(features)):
             feature = features[-1-idx]
-            flow_feature = self.get_norm_feature(cascaded_flow[idx+2].detach().clone()) + temb
+            flow_feature = self.get_norm_feature(cascaded_flow[idx+2].detach().clone()) + temb + semb[-1-idx]
 
             up = self.up[idx]
             up_conv = self.up_conv[idx]

@@ -14,10 +14,11 @@ from utils import save_checkpoint, load_checkpoint, restore_checkpoint
 
 
 def unbatch(config, batch):
-    f1, f2, coord, t, target = batch
+    f1, f2, coord_x, coord_y, t, target = batch
     return (f1.to(config.device).float(),
             f2.to(config.device).float(),
-            coord.to(config.device).float(),
+            coord_x.to(config.device).float(),
+            coord_y.to(config.device).float(),
             t.to(config.device).float(),
             target.to(config.device).float())
 
@@ -116,7 +117,7 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     from configs.pinn.pinn_pde import get_config
     config = get_config()
-    workdir = "../workdir/pde-pufn/checkpoints-meta/checkpoint.pth"
+    workdir = "../workdir/pde-pinn/checkpoints-meta/checkpoint.pth"
 
     model = PINN_Net(config)
     model = load_checkpoint(workdir, model, config.device)
@@ -125,16 +126,16 @@ if __name__ == "__main__":
     _, eval_ds = datasets.get_dataset(config,
                                              uniform_dequantization=config.data.uniform_dequantization)
     eval_iter = iter(eval_ds)  # pytype: disable=wrong-arg-types
-    f1, f2, coord, t, target = unbatch(config, next(eval_iter))
-    veloc_pred, pressure_pred = model(f1, f2, coord, t)
+    f1, f2, x, y, t, target = unbatch(config, next(eval_iter))
+    veloc_pred, pressure_pred = model(f1, f2, x, y, t)
 
     mode = 0
     if mode == 0:
 
         fig, axe = plt.subplots(nrows=2, ncols=3, figsize=(40, 40))
 
-        axe[0][0].imshow(coord[0, 0].cpu().detach().numpy())
-        axe[0][1].imshow(coord[0, 1].cpu().detach().numpy())
+        axe[0][0].imshow(x[0, 0].cpu().detach().numpy())
+        axe[0][1].imshow(y[0, 0].cpu().detach().numpy())
         axe[0][2].imshow(f2[0, 0].cpu().detach().numpy())
 
         u = torch.cat([target[0, 0], veloc_pred[-1][0, 0]]).cpu().detach().numpy()
@@ -153,7 +154,7 @@ if __name__ == "__main__":
     elif mode == 1:
         from torchview import draw_graph
 
-        model_graph = draw_graph(model, input_data=(f1, f2, coord, t), device='cuda')
+        model_graph = draw_graph(model, input_data=(f1, f2, x, y, t), device='cuda')
         model_graph.visual_graph
 
     else:

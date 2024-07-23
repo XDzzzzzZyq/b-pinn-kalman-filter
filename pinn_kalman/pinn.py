@@ -58,9 +58,9 @@ class PINN_Net(nn.Module):
 
         return mask1, mask2, mask3
 
-    def forward(self, f1, f2, coord, t):
-        flow = self.flownet(f1, f2, coord, t)
-        pressure = self.pressurenet(flow, coord, t)
+    def forward(self, f1, f2, x, y, t):
+        flow = self.flownet(f1, f2, x, y, t)
+        pressure = self.pressurenet(flow, x, y, t)
         return flow, pressure
 
     def advection_mse(self, x, y, t, prediction):

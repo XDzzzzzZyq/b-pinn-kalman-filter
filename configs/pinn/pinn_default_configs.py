@@ -29,6 +29,9 @@ def get_default_configs():
   model.ema_rate = 0.9
   model.arch = 'flownet'
   model.feature_nums = [16, 32, 64, 96, 128] # 4 levels of features
+  model.spatial_embed_omega = 100
+  model.spatial_embed_s_flow = 10
+  model.spatial_embed_s_pres = 10
 
   # optimization
   config.optim = optim = ml_collections.ConfigDict()

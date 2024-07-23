@@ -218,15 +218,15 @@ def check_for_nans(model):
 def get_pinn_step_fn(config, train, optimize_fn):
     def flow_loss_fn(model, batch):
 
-        f1, f2, coord, t, target = batch
+        f1, f2, x, y, t, target = batch
 
-        veloc_pred = model(f1, f2, coord, t)
+        veloc_pred = model(f1, f2, x, y, t)
         v_loss = model.multiscale_data_mse(veloc_pred, target)
         return v_loss
 
     def pres_loss_fn(model, batch):
 
-        f1, f2, coord, t, target = batch
+        f1, f2, x, y, t, target = batch
 
         cascaded_flow = [target[:,0:2]]
         for i in range(len(config.model.feature_nums)):
@@ -235,7 +235,7 @@ def get_pinn_step_fn(config, train, optimize_fn):
             flow = F.interpolate(input=flow, size=size, mode='bilinear', align_corners=False)
             cascaded_flow.append(flow)
 
-        pres_pred = model(cascaded_flow[::-1], coord, t)
+        pres_pred = model(cascaded_flow[::-1], x, y, t)
         p_loss = model.data_mse(pres_pred, target)
         return p_loss
 

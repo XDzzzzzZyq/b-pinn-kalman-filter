@@ -33,7 +33,7 @@ def train(config, workdir):
     model = PINN_Net(config)
     ema = ExponentialMovingAverage(model.parameters(), decay=config.model.ema_rate)
     optimizer_flow = losses.get_optimizer(config, model.flownet.parameters())
-    optimizer_pres = losses.get_optimizer(config, model.pressurenet.parameters(), 0.05)
+    optimizer_pres = losses.get_optimizer(config, model.pressurenet.parameters(), 0.001)
     state = dict(optimizer=(optimizer_flow, optimizer_pres), model=model, ema=ema, step=0)
 
     # Create checkpoints directory

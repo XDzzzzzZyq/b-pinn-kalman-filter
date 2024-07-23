@@ -295,7 +295,7 @@ class PressureNet(nn.Module):
 
     def data_mse(self, pressure, target):
         error_fn = torch.nn.MSELoss()
-        return error_fn(pressure, target[:,2:3]) * 0.005
+        return error_fn(pressure, target[:,2:3])
 
 
 if __name__ == '__main__':

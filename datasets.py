@@ -254,7 +254,7 @@ def get_dataset(config, uniform_dequantization=False, evaluation=False):
 
         from netCDF4 import Dataset
 
-        data = Dataset('/data1/20000-25-400-200.nc')
+        data = Dataset('/data1/40000-25-400-200.nc')
         data = data['data']
 
         transform = transforms.Compose([

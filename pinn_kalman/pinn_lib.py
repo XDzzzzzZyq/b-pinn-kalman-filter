@@ -33,7 +33,7 @@ def train(config, workdir):
     model = PINN_Net(config)
     ema = ExponentialMovingAverage(model.parameters(), decay=config.model.ema_rate)
     optimizer_flow = losses.get_optimizer(config, model.flownet.parameters())
-    optimizer_pres = losses.get_optimizer(config, model.pressurenet.parameters())
+    optimizer_pres = losses.get_optimizer(config, model.pressurenet.parameters(), 0.05)
     state = dict(optimizer=(optimizer_flow, optimizer_pres), model=model, ema=ema, step=0)
 
     # Create checkpoints directory
@@ -131,21 +131,24 @@ if __name__ == "__main__":
     mode = 0
     if mode == 0:
 
-        fig, axe = plt.subplots(nrows=3, ncols=3, figsize=(40, 20))
+        fig, axe = plt.subplots(nrows=2, ncols=3, figsize=(40, 40))
 
         axe[0][0].imshow(coord[0, 0].cpu().detach().numpy())
         axe[0][1].imshow(coord[0, 1].cpu().detach().numpy())
         axe[0][2].imshow(f2[0, 0].cpu().detach().numpy())
 
-        axe[1][0].imshow(target[0, 0].cpu().detach().numpy())
-        axe[1][1].imshow(target[0, 1].cpu().detach().numpy())
-        axe[1][2].imshow(target[0, 2].cpu().detach().numpy())
+        u = torch.cat([target[0, 0], veloc_pred[-1][0, 0]]).cpu().detach().numpy()
+        v = torch.cat([target[0, 1], veloc_pred[-1][0, 1]]).cpu().detach().numpy()
+        p = torch.cat([target[0, 2], pressure_pred[0, 0]]).cpu().detach().numpy()
 
-        axe[2][0].imshow(veloc_pred[-1][0, 0].cpu().detach().numpy())
-        axe[2][1].imshow(veloc_pred[-1][0, 1].cpu().detach().numpy())
-        axe[2][2].imshow(pressure_pred[0, 0].cpu().detach().numpy())
+        axe[1][0].imshow(u)
+        axe[1][1].imshow(v)
+        axe[1][2].imshow(p)
 
         plt.show()
+        print(model.pressurenet.end[-1].weight, model.pressurenet.end[-1].bias)
+        print(pressure_pred[0, 0].min(), pressure_pred[0, 0].max())
+        print(t[0], target[0, 2].min(), target[0, 2].max())
 
     elif mode == 1:
         from torchview import draw_graph

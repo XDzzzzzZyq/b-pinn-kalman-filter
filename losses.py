@@ -24,10 +24,10 @@ from models import utils as mutils
 from sde_lib import VESDE, VPSDE
 
 
-def get_optimizer(config, params):
+def get_optimizer(config, params, lr_mul=1.0):
     """Returns a flax optimizer object based on `config`."""
     if config.optim.optimizer == 'Adam':
-        optimizer = optim.Adam(params, lr=config.optim.lr, betas=(config.optim.beta1, 0.999), eps=config.optim.eps,
+        optimizer = optim.Adam(params, lr=config.optim.lr*lr_mul, betas=(config.optim.beta1, 0.999), eps=config.optim.eps,
                                weight_decay=config.optim.weight_decay)
     else:
         raise NotImplementedError(f'Optimizer {config.optim.optimizer} not supported yet!')
@@ -235,7 +235,7 @@ def get_pinn_step_fn(config, train, optimize_fn):
             flow = F.interpolate(input=flow, size=size, mode='bilinear', align_corners=False)
             cascaded_flow.append(flow)
 
-        pres_pred = model(cascaded_flow[::-1])
+        pres_pred = model(cascaded_flow[::-1], coord, t)
         p_loss = model.data_mse(pres_pred, target)
         return p_loss
 

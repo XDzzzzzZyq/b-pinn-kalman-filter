@@ -209,30 +209,33 @@ class FlowNet(nn.Module):
         return v_loss
 
 from . import layers
-def get_double_conv(in_channels, out_channels):
-    layer = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
-        nn.ReLU(inplace=True),
-        nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
-        nn.ReLU(inplace=True))
-
+def get_double_res(in_channels, out_channels, num_groups=16):
+    layer = nn.Sequential(
+        layers.ResidualBlock(in_channels, in_channels*2),
+        layers.ResidualBlock(in_channels*2, out_channels)
+    )
     return layer
 def get_down_layer(in_channels, out_channels):
     layer = nn.Sequential(
-            nn.MaxPool2d(2),
-            layers.ResidualBlock(in_channels, out_channels)
-        )
+        nn.MaxPool2d(2),
+        get_double_res(in_channels, out_channels)
+    )
     return layer
 def get_up_layer(in_channels, out_channels):
     return nn.Sequential(
-            nn.ConvTranspose2d(in_channels, out_channels, kernel_size=2, stride=2)
+        nn.ConvTranspose2d(in_channels, out_channels, kernel_size=2, stride=2)
         )
+
 
 class PressureNet(nn.Module):
     def __init__(self, config):
         super(PressureNet, self).__init__()
 
         channels = config.model.feature_nums
-        self.first = get_double_conv(2, channels[0])
+        self.flow_feature_nums = flow_feature_nums = 32
+        self.flow_feature = get_double_res(3, flow_feature_nums)
+
+        self.first = get_double_res(flow_feature_nums, channels[0])
 
         ch_i = channels[0]
         self.down = []
@@ -246,16 +249,30 @@ class PressureNet(nn.Module):
         self.up_conv = []
         for ch_o in channels[-2::-1]:
             self.up.append(get_up_layer(ch_i, ch_o))
-            self.up_conv.append(layers.ResidualBlock(ch_o*2 + 3, ch_o))
+            self.up_conv.append(get_double_res(ch_o*2 + flow_feature_nums, ch_o, 4))
             ch_i = ch_o
         self.up = nn.ModuleList(self.up)
         self.up_conv = nn.ModuleList(self.up_conv)
 
-        self.end = get_double_conv(channels[0], 1)
+        self.end = nn.Sequential(
+            get_double_res(channels[0], channels[0] // 2),
+            nn.Conv2d(channels[0] // 2, channels[0] // 2, kernel_size=1),
+            get_double_res(channels[0] // 2, 1),
+            nn.Conv2d(1, 1, kernel_size=1)
+        )
 
-    def forward(self, cascaded_flow):
-        x = self.first(cascaded_flow[-1].detach())
+    def get_norm_feature(self, flow):
+        flow_norm = -(flow ** 2).sum(dim=1).unsqueeze(1)
+        block = torch.cat([flow, flow_norm], dim=1)
+        return self.flow_feature(block)
+
+    def forward(self, cascaded_flow, coord, t):
+
+        temb = layers.get_timestep_embedding(t, self.flow_feature_nums)[:,:,None,None]
+        x = self.get_norm_feature(cascaded_flow[-1].detach().clone())
+        x = self.first(x)
         features = [x]
+
 
         for down in self.down:
             x = down(x)
@@ -264,15 +281,13 @@ class PressureNet(nn.Module):
 
         for idx in range(len(features)):
             feature = features[-1-idx]
-
-            flow = cascaded_flow[idx+2].detach().clone()
-            flow_norm = -(flow ** 2).sum(dim=1).unsqueeze(1)
+            flow_feature = self.get_norm_feature(cascaded_flow[idx+2].detach().clone()) + temb
 
             up = self.up[idx]
             up_conv = self.up_conv[idx]
 
             x = up(x)
-            block = torch.cat([feature, x, flow, flow_norm], dim=1)
+            block = torch.cat([feature, x, flow_feature], dim=1)
             x = up_conv(block)
 
         x = self.end(x)

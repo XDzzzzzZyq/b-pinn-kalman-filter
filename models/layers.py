@@ -557,9 +557,9 @@ class NIN(nn.Module):
 
 class AttnBlock(nn.Module):
   """Channel-wise self-attention block."""
-  def __init__(self, channels):
+  def __init__(self, channels, num_groups=32):
     super().__init__()
-    self.GroupNorm_0 = nn.GroupNorm(num_groups=32, num_channels=channels, eps=1e-6)
+    self.GroupNorm_0 = nn.GroupNorm(num_groups=num_groups, num_channels=channels, eps=1e-6)
     self.NIN_0 = NIN(channels, channels)
     self.NIN_1 = NIN(channels, channels)
     self.NIN_2 = NIN(channels, channels)
@@ -660,3 +660,14 @@ class ResnetBlockDDPM(nn.Module):
       else:
         x = self.NIN_0(x)
     return x + h
+
+class NonLinear(torch.nn.Module):
+  def __init__(self, num):
+    super(NonLinear, self).__init__()
+
+    self.a = nn.Parameter(torch.tensor(0.0))  # Initialize a
+    self.b = nn.Parameter(torch.tensor(1.0))  # Initialize b
+    self.c = nn.Parameter(torch.tensor(0.0))  # Initialize c
+
+  def forward(self, x):
+    return self.a * x**2 + self.b * x + self.c

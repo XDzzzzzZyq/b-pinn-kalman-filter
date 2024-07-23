@@ -60,7 +60,7 @@ class PINN_Net(nn.Module):
 
     def forward(self, f1, f2, coord, t):
         flow = self.flownet(f1, f2, coord, t)
-        pressure = self.pressurenet(flow)
+        pressure = self.pressurenet(flow, coord, t)
         return flow, pressure
 
     def advection_mse(self, x, y, t, prediction):

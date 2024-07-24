@@ -9,8 +9,7 @@ gridsample_grad2 = load(
     'gridsample_grad2',
     sources=[
         os.path.join(module_path, 'grid_sample.cpp'),
-        os.path.join(module_path, 'grid_sample_kernel.cu')],
-    verbose=True
+        os.path.join(module_path, 'grid_sample_kernel.cu')]
 )
 
 def grid_sample_2d(input, grid, padding_mode='zeros', align_corners=True):

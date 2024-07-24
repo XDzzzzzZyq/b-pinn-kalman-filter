@@ -127,8 +127,9 @@ def train(config, workdir):
     '''
 
     ema = ExponentialMovingAverage(model.parameters(), decay=config.model.ema_rate)
-    optimizer_pinn = losses.get_optimizer(config, model.parameters())
-    state = dict(optimizer=optimizer_pinn, model=model, ema=ema, step=num_train_steps)
+    optimizer_flow = losses.get_optimizer(config, model.flownet.parameters())
+    optimizer_pres = losses.get_optimizer(config, model.pressurenet.parameters(), 0.005)
+    state = dict(optimizer=(optimizer_flow, optimizer_pres), model=model, ema=ema, step=num_train_steps)
 
     checkpoint_meta_dir = os.path.join(workdir, "checkpoints-meta", "checkpoint_pinn.pth")
     state = restore_checkpoint(checkpoint_meta_dir, state, config.device)
@@ -192,6 +193,7 @@ def train(config, workdir):
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
+    import matplotlib.gridspec as gridspec
     from configs.pinn.pinn_pde import get_config
     config = get_config()
     workdir = "../workdir/pde-pinn/checkpoints-meta/checkpoint.pth"
@@ -206,22 +208,34 @@ if __name__ == "__main__":
     f1, f2, x, y, t, target = unbatch(config, next(eval_iter))
     veloc_pred, pressure_pred = model(f1, f2, x, y, t)
 
+    workdir = "../workdir/pde-pinn/checkpoints-meta/checkpoint_pinn.pth"
+    model = load_checkpoint(workdir, model, config.device)
+    veloc_pred_pinn, pressure_pred_pinn = model(f1, f2, x, y, t)
+
     mode = 0
     if mode == 0:
 
-        fig, axe = plt.subplots(nrows=2, ncols=3, figsize=(40, 40))
+        fig = plt.figure(figsize=(30, 40))
+        gs = gridspec.GridSpec(2, 3, height_ratios=[1, 3])
 
-        axe[0][0].imshow(x[0, 0].cpu().detach().numpy())
-        axe[0][1].imshow(y[0, 0].cpu().detach().numpy())
-        axe[0][2].imshow(f2[0, 0].cpu().detach().numpy())
+        ax1 = fig.add_subplot(gs[0, 0])
+        ax2 = fig.add_subplot(gs[0, 1])
+        ax3 = fig.add_subplot(gs[0, 2])
+        ax4 = fig.add_subplot(gs[1, 0])
+        ax5 = fig.add_subplot(gs[1, 1])
+        ax6 = fig.add_subplot(gs[1, 2])
 
-        u = torch.cat([target[0, 0], veloc_pred[-1][0, 0]]).cpu().detach().numpy()
-        v = torch.cat([target[0, 1], veloc_pred[-1][0, 1]]).cpu().detach().numpy()
-        p = torch.cat([target[0, 2], pressure_pred[0, 0]]).cpu().detach().numpy()
+        ax1.imshow(x[0, 0].cpu().detach().numpy())
+        ax2.imshow(y[0, 0].cpu().detach().numpy())
+        ax3.imshow(f2[0, 0].cpu().detach().numpy())
 
-        axe[1][0].imshow(u)
-        axe[1][1].imshow(v)
-        axe[1][2].imshow(p)
+        u = torch.cat([target[0, 0], veloc_pred[-1][0, 0], veloc_pred_pinn[-1][0, 0]]).cpu().detach().numpy()
+        v = torch.cat([target[0, 1], veloc_pred[-1][0, 1], veloc_pred_pinn[-1][0, 1]]).cpu().detach().numpy()
+        p = torch.cat([target[0, 2], pressure_pred[0, 0], pressure_pred_pinn[0, 0]]).cpu().detach().numpy()
+
+        ax4.imshow(u)
+        ax5.imshow(v)
+        ax6.imshow(p)
 
         plt.show()
         print(model.pressurenet.end[-1].weight, model.pressurenet.end[-1].bias)

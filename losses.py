@@ -303,7 +303,7 @@ def get_pinn_step_fn(config, train, optimize_fn):
         p_loss = model.pressurenet.data_mse(pres_pred, target)
         data_loss = v_loss + p_loss
 
-        pinn_loss = model.equation_mse(x, y, t, flow_pred[-1], pres_pred, 100000)
+        pinn_loss = model.equation_mse(x, y, t, flow_pred[-1], pres_pred, 100000) * config.training.pinn_loss_weight
 
         return pinn_loss + data_loss, pinn_loss, data_loss
 
@@ -313,14 +313,23 @@ def get_pinn_step_fn(config, train, optimize_fn):
         model = state['model']
 
         if train:
-            optimizer_pinn = state['optimizer']
+            optimizer_flow, optimizer_pres = state['optimizer']
 
             model.train()
-            optimizer_pinn.zero_grad()
+            optimizer_flow.zero_grad()
+            optimizer_pres.zero_grad()
             loss, pinn_loss, data_loss = loss_fn(model, batch)
 
+            layer = model.pressurenet.end[-1]
+            w = layer.weight
+            grad = torch.autograd.grad(loss, w, retain_graph=True)[0]
+            if torch.isnan(grad).any():
+                print(">>> Nan Grad Detected <<<")
+                return loss, pinn_loss, data_loss
+
             loss.backward()
-            optimize_fn(optimizer_pinn, model.parameters(), step=state['step'])
+            optimize_fn(optimizer_flow, model.flownet.parameters(), step=state['step'])
+            optimize_fn(optimizer_pres, model.pressurenet.parameters(), step=state['step'])
 
             state['step'] += 1
             state['ema'].update(model.parameters())

@@ -17,21 +17,26 @@ def unbatch(config, batch):
     f1, f2, coord_x, coord_y, t, target = batch
     return (f1.to(config.device).float(),
             f2.to(config.device).float(),
-            coord_x.to(config.device).float(),
-            coord_y.to(config.device).float(),
-            t.to(config.device).float(),
+            coord_x.to(config.device).float().requires_grad_(),
+            coord_y.to(config.device).float().requires_grad_(),
+            t.to(config.device).float().requires_grad_(),
             target.to(config.device).float())
 
 def train(config, workdir):
-    # Create directories for experimental logs
-    sample_dir = os.path.join(workdir, "samples")
-    os.makedirs(sample_dir, exist_ok=True)
 
     tb_dir = os.path.join(workdir, "tensorboard")
     os.makedirs(tb_dir, exist_ok=True)
     writer = tensorboard.SummaryWriter(tb_dir)
 
     model = PINN_Net(config)
+
+
+    '''
+    
+    Training Schedule #1: Preliminary Training for FlowNet and PressureNet
+    
+    '''
+
     ema = ExponentialMovingAverage(model.parameters(), decay=config.model.ema_rate)
     optimizer_flow = losses.get_optimizer(config, model.flownet.parameters())
     optimizer_pres = losses.get_optimizer(config, model.pressurenet.parameters(), 0.001)
@@ -61,15 +66,15 @@ def train(config, workdir):
     #continuous = config.training.continuous
     #reduce_mean = config.training.reduce_mean
     #likelihood_weighting = config.training.likelihood_weighting
-    train_step_fn = losses.get_pinn_step_fn(config, train=True, optimize_fn=optimize_fn)
-    eval_step_fn = losses.get_pinn_step_fn(config, train=False, optimize_fn=optimize_fn)
+    train_step_fn = losses.get_prelim_step_fn(config, train=True, optimize_fn=optimize_fn)
+    eval_step_fn = losses.get_prelim_step_fn(config, train=False, optimize_fn=optimize_fn)
 
 
     num_train_steps = config.training.n_iters
     print("num_train_steps", num_train_steps)
 
     # In case there are multiple hosts (e.g., TPU pods), only log to host 0
-    logging.info("Starting training loop at step %d." % (initial_step,))
+    logging.info("Starting Preliminary Training loop at step %d." % (initial_step,))
 
     for step in range(initial_step, num_train_steps + 1):
         try:
@@ -82,7 +87,8 @@ def train(config, workdir):
         loss, v_loss, p_loss = train_step_fn(state, unbatch(config, batch))
 
         if step % config.training.log_freq == 0:
-            logging.info("step: %d, training_loss: %.5e = (%.5e, %.5e)" % (step, loss.item(), v_loss.item(), p_loss.item()))
+            logging.info(
+                "step: %d, training_loss: %.5e = (%.5e, %.5e)" % (step, loss.item(), v_loss.item(), p_loss.item()))
             writer.add_scalar("training_vel_loss", v_loss, step)
             writer.add_scalar("training_prs_loss", p_loss, step)
 
@@ -96,14 +102,85 @@ def train(config, workdir):
                 batch = next(eval_iter)
 
             loss, v_loss, p_loss = eval_step_fn(state, unbatch(config, batch))
-            logging.info("step: %d, eval_loss: %.5e = (%.5e, %.5e)" % (step, loss.item(), v_loss.item(), p_loss.item()))
+            logging.info(
+                "step: %d, eval_loss: %.5e = (%.5e, %.5e)" % (step, loss.item(), v_loss.item(), p_loss.item()))
             writer.add_scalar("eval_vel_loss", v_loss, step)
             writer.add_scalar("eval_prs_loss", p_loss, step)
 
         # Save a temporary checkpoint to resume training after pre-emption periodically
         if step != 0 and step % config.training.snapshot_freq_for_preemption == 0:
-            print(f">>> temp checkpoint saved")
             save_checkpoint(checkpoint_meta_dir, state)
+            print(f">>> temp checkpoint saved")
+
+        # Save a checkpoint periodically and generate samples if needed
+        if step != 0 and step % config.training.snapshot_freq == 0 or step == num_train_steps:
+            # Save the checkpoint.
+            save_step = step // config.training.snapshot_freq
+            save_checkpoint(os.path.join(checkpoint_dir, f'checkpoint_{save_step}.pth'), state)
+            print(f">>> checkpoint_{save_step}.pth saved")
+
+
+    '''
+
+    Training Schedule #2: Regularization Training for PINN
+
+    '''
+
+    ema = ExponentialMovingAverage(model.parameters(), decay=config.model.ema_rate)
+    optimizer_pinn = losses.get_optimizer(config, model.parameters())
+    state = dict(optimizer=optimizer_pinn, model=model, ema=ema, step=num_train_steps)
+
+    checkpoint_meta_dir = os.path.join(workdir, "checkpoints-meta", "checkpoint_pinn.pth")
+    state = restore_checkpoint(checkpoint_meta_dir, state, config.device)
+    initial_step = int(state['step'])
+
+    print(f"checkpoint_dir:{checkpoint_dir}")
+    print(f"checkpoint_meta_dir:{checkpoint_meta_dir}")
+
+    train_step_fn = losses.get_pinn_step_fn(config, train=True, optimize_fn=optimize_fn)
+    eval_step_fn = losses.get_pinn_step_fn(config, train=False, optimize_fn=optimize_fn)
+
+    num_train_steps = config.training.n_iters + config.training.n_pinn_iters
+    print("num_train_steps", num_train_steps)
+
+    # In case there are multiple hosts (e.g., TPU pods), only log to host 0
+    logging.info("Starting Regularization Training loop at step %d." % (initial_step,))
+
+    for step in range(initial_step, num_train_steps + 1):
+        try:
+            batch = next(train_iter)
+        except StopIteration:
+            train_iter = iter(train_ds)
+            batch = next(train_iter)
+
+        # Execute one training step
+        loss, loss_pinn, loss_data = train_step_fn(state, unbatch(config, batch))
+
+        if step % config.training.log_freq == 0:
+            logging.info(
+                "step: %d, training_pinn_loss: %.5e = (%.5e, %.5e)" % (step, loss.item(), loss_pinn.item(), loss_data.item()))
+            writer.add_scalar("training_pinn_loss", loss_pinn, step)
+            writer.add_scalar("training_data_loss", loss_data, step)
+
+        # Report the loss on an evaluation dataset periodically
+        if step % config.training.eval_freq == 0:
+            try:
+                batch = next(eval_iter)
+            except StopIteration:
+                eval_iter = iter(eval_ds)
+
+                batch = next(eval_iter)
+
+            loss, loss_pinn, loss_data = eval_step_fn(state, unbatch(config, batch))
+            logging.info("step: %d, eval_pinn_loss: %.5e = (%.5e, %.5e)" % (
+            step, loss.item(), loss_pinn.item(), loss_data.item()))
+            writer.add_scalar("eval_pinn_loss", loss_pinn, step)
+            writer.add_scalar("eval_data_loss", loss_data, step)
+
+        # Save a temporary checkpoint to resume training after pre-emption periodically
+        if step != 0 and step % config.training.snapshot_freq_for_preemption == 0:
+            save_checkpoint(checkpoint_meta_dir, state)
+            print(f">>> temp checkpoint saved")
 
         # Save a checkpoint periodically and generate samples if needed
         if step != 0 and step % config.training.snapshot_freq == 0 or step == num_train_steps:

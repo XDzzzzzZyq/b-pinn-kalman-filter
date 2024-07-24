@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from op import correlation
+from op import correlation, grid_sample
 import functools
 
 temp_grid = {}
@@ -18,11 +18,10 @@ def project(f, u, dt):
         u[:, 0:1, :, :] / ((f.size(3) - 1.0) / 2.0)
     ], 1)
 
-    return torch.nn.functional.grid_sample(
+    return grid_sample.grid_sample_2d(
         input=f,
         grid=(grid - u * dt).permute(0, 2, 3, 1),
-        mode='bilinear',
-        padding_mode='reflection',
+        padding_mode='border',
         align_corners=True)
 
 def get_conv_feature_layer(in_channels, out_channels):

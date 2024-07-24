@@ -42,7 +42,7 @@ class PINN_Net(nn.Module):
         #model = torch.nn.DataParallel(model)
         self.flownet = flownet
         self.pressurenet = PressureNet(config).to(self.device)
-        self.mask_u, self.mask_v, self.mask_p = self.get_mask(config)
+        self.mask_u, self.mask_v = self.get_mask(config)
 
     def get_mask(self, config):
         '''for differentiable slicing'''
@@ -52,11 +52,10 @@ class PINN_Net(nn.Module):
 
         zero = torch.zeros(N, N)
         ones = torch.ones(N, N)
-        mask1 = torch.stack([ones, zero, zero]).to(device)
-        mask2 = torch.stack([zero, ones, zero]).to(device)
-        mask3 = torch.stack([zero, zero, ones]).to(device)
+        mask1 = torch.stack([ones, zero]).to(device)
+        mask2 = torch.stack([zero, ones]).to(device)
 
-        return mask1, mask2, mask3
+        return mask1, mask2
 
     def forward(self, f1, f2, x, y, t):
         flow = self.flownet(f1, f2, x, y, t)
@@ -67,26 +66,21 @@ class PINN_Net(nn.Module):
         return None
 
     # derive loss for equation
-    def equation_mse_dimensionless(self, x, y, t, prediction, Re):
+    def equation_mse(self, x, y, t, flow, pres, Re):
 
         # 获得预测的输出u,v,p
 
-        u = self.mask_u * prediction
-        v = self.mask_v * prediction
-        p = self.mask_p * prediction
+        u = self.mask_u * flow
+        v = self.mask_v * flow
+        p = pres
 
         # 通过自动微分计算各个偏导数,其中.sum()将矢量转化为标量，并无实际意义
         # first-order derivative
         # 一阶导
 
-        u_x = torch.autograd.grad(u.sum(), x, create_graph=True)[0]
-        u_y = torch.autograd.grad(u.sum(), y, create_graph=True)[0]
-        u_t = torch.autograd.grad(u.sum(), t, create_graph=True)[0]
-        v_x = torch.autograd.grad(v.sum(), x, create_graph=True)[0]
-        v_y = torch.autograd.grad(v.sum(), y, create_graph=True)[0]
-        v_t = torch.autograd.grad(v.sum(), t, create_graph=True)[0]
-        p_x = torch.autograd.grad(p.sum(), x, create_graph=True)[0]
-        p_y = torch.autograd.grad(p.sum(), y, create_graph=True)[0]
+        u_x, u_y, u_t = torch.autograd.grad(u.sum(), (x, y, t), create_graph=True, retain_graph=True)
+        v_x, v_y, v_t = torch.autograd.grad(v.sum(), (x, y, t), create_graph=True, retain_graph=True)
+        p_x, p_y      = torch.autograd.grad(p.sum(), (x, y),    create_graph=True, retain_graph=True)
 
         # second-order derivative
         u_xx = torch.autograd.grad(u_x.sum(), x, retain_graph=True)[0]
@@ -104,12 +98,12 @@ class PINN_Net(nn.Module):
         # 计算偏微分方程的残差
         #print(u_t.shape, u.shape, u_x.shape, p_x.shape)
         f_equation_mass = u_x + v_y
-        f_equation_x = u_t + (u * u_x + v * u_y) + p_x - 1.0 / Re * (u_xx + u_yy)
-        f_equation_y = v_t + (u * v_x + v * v_y) + p_y - 1.0 / Re * (v_xx + v_yy)
+        f_equation_x    = u_t + (u * u_x + v * u_y) + p_x - 1.0 / Re * (u_xx + u_yy)
+        f_equation_y    = v_t + (u * v_x + v * v_y) + p_y - 1.0 / Re * (v_xx + v_yy)
         mse = torch.nn.MSELoss()
         batch_t_zeros = torch.zeros_like(x, dtype=torch.float32, device=self.device)
-        mse_x = mse(f_equation_x, batch_t_zeros)
-        mse_y = mse(f_equation_y, batch_t_zeros)
+        mse_x    = mse(f_equation_x,    batch_t_zeros)
+        mse_y    = mse(f_equation_y,    batch_t_zeros)
         mse_mass = mse(f_equation_mass, batch_t_zeros)
 
         return mse_x + mse_y + mse_mass

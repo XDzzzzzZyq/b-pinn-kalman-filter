@@ -215,7 +215,7 @@ def check_for_nans(model):
             return True
     return False
 
-def get_pinn_step_fn(config, train, optimize_fn):
+def get_prelim_step_fn(config, train, optimize_fn):
     def flow_loss_fn(model, batch):
 
         f1, f2, x, y, t, target = batch
@@ -289,5 +289,51 @@ def get_pinn_step_fn(config, train, optimize_fn):
         loss = v_loss + p_loss
 
         return loss, v_loss, p_loss
+
+    return step_fn
+
+
+def get_pinn_step_fn(config, train, optimize_fn):
+    def loss_fn(model, batch):
+
+        f1, f2, x, y, t, target = batch
+        flow_pred, pres_pred = model(f1, f2, x, y, t)
+
+        v_loss = model.flownet.multiscale_data_mse(flow_pred, target)
+        p_loss = model.pressurenet.data_mse(pres_pred, target)
+        data_loss = v_loss + p_loss
+
+        pinn_loss = model.equation_mse(x, y, t, flow_pred[-1], pres_pred, 100000)
+
+        return pinn_loss + data_loss, pinn_loss, data_loss
+
+
+
+    def step_fn(state, batch):
+        model = state['model']
+
+        if train:
+            optimizer_pinn = state['optimizer']
+
+            model.train()
+            optimizer_pinn.zero_grad()
+            loss, pinn_loss, data_loss = loss_fn(model, batch)
+
+            loss.backward()
+            optimize_fn(optimizer_pinn, model.parameters(), step=state['step'])
+
+            state['step'] += 1
+            state['ema'].update(model.parameters())
+
+        else:
+            model.eval()
+
+            ema = state['ema']
+            ema.store(model.parameters())
+            ema.copy_to(model.parameters())
+            loss, pinn_loss, data_loss = loss_fn(model, batch)
+            ema.restore(model.parameters())
+
+        return loss, pinn_loss, data_loss
 
     return step_fn

@@ -31,7 +31,7 @@ FLAGS = flags.FLAGS
 config_flags.DEFINE_config_file("config", None, "Training configuration.", lock_config=True)
 flags.DEFINE_string("workdir", None, "Work directory.")
 flags.DEFINE_string("ckptdir", None, "Checkpoint directory.")
-flags.DEFINE_enum("mode", None, ["train", 'sample', "eval", "inverse", "train_pinn"],
+flags.DEFINE_enum("mode", None, ["train", 'sample', "eval", "inverse", "train_pinn", "train_bpinn"],
                   "Running mode: train or eval or sample")
 flags.DEFINE_string("eval_folder", "eval", "The folder name for storing evaluation results")
 flags.mark_flags_as_required(["workdir", "config", "mode"])
@@ -61,6 +61,8 @@ def main(argv):
         inverse_lib.inverse(FLAGS.config, FLAGS.ckptdir, FLAGS.workdir)
     elif FLAGS.mode == "train_pinn":
         pinn_lib.train(FLAGS.config, FLAGS.workdir)
+    elif FLAGS.mode == "train_bpinn":
+        pinn_lib.train_bpinn(FLAGS.config, FLAGS.workdir, FLAGS.ckptdir)
     else:
         raise ValueError(f"Mode {FLAGS.mode} not recognized.")
 

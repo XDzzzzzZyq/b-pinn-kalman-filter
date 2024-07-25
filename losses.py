@@ -23,6 +23,8 @@ import torch.nn.functional as F
 from models import utils as mutils
 from sde_lib import VESDE, VPSDE
 
+from bayesian_torch.models.dnn_to_bnn import get_kl_loss
+
 
 def get_optimizer(config, params, lr_mul=1.0):
     """Returns a flax optimizer object based on `config`."""
@@ -215,14 +217,24 @@ def check_for_nans(model):
             return True
     return False
 
-def get_prelim_step_fn(config, train, optimize_fn):
+def get_prelim_step_fn(config, train, optimize_fn, is_bpinn=False):
+
+    error_fn = torch.nn.MSELoss()
+
+    def kl_loss_fn(model):
+        return get_kl_loss(model) / config.training.batch_size
+
     def flow_loss_fn(model, batch):
 
         f1, f2, x, y, t, target = batch
 
         veloc_pred = model(f1, f2, x, y, t)
-        v_loss = model.multiscale_data_mse(veloc_pred, target)
-        return v_loss
+        v_loss = model.multiscale_data_mse(veloc_pred, target, error_fn=error_fn)
+
+        if is_bpinn:
+            return v_loss + kl_loss_fn(model)
+        else:
+            return v_loss
 
     def pres_loss_fn(model, batch):
 
@@ -236,13 +248,17 @@ def get_prelim_step_fn(config, train, optimize_fn):
             cascaded_flow.append(flow)
 
         pres_pred = model(cascaded_flow[::-1], x, y, t)
-        p_loss = model.data_mse(pres_pred, target)
-        return p_loss
+        p_loss = model.data_mse(pres_pred, target, error_fn=error_fn)
+
+        if is_bpinn:
+            return p_loss + kl_loss_fn(model)
+        else:
+            return p_loss
 
     def step_fn(state, batch):
         model = state['model']
-        flownet = model.flownet
-        pressurenet = model.pressurenet
+        flownet = model.model.flownet
+        pressurenet = model.model.pressurenet
 
         if train:
             optimizer_flow, optimizer_pres = state['optimizer']
@@ -294,6 +310,7 @@ def get_prelim_step_fn(config, train, optimize_fn):
 
 
 def get_pinn_step_fn(config, train, optimize_fn):
+
     def loss_fn(model, batch):
 
         f1, f2, x, y, t, target = batch
@@ -306,8 +323,6 @@ def get_pinn_step_fn(config, train, optimize_fn):
         pinn_loss = model.equation_mse(x, y, t, flow_pred[-1], pres_pred, 100000) * config.training.pinn_loss_weight
 
         return pinn_loss + data_loss, pinn_loss, data_loss
-
-
 
     def step_fn(state, batch):
         model = state['model']
@@ -346,3 +361,4 @@ def get_pinn_step_fn(config, train, optimize_fn):
         return loss, pinn_loss, data_loss
 
     return step_fn
+

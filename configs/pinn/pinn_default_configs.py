@@ -36,6 +36,8 @@ def get_default_configs():
   model.spatial_embed_s_flow = 100
   model.spatial_embed_s_pres = 100
 
+  model.bpinn_moped_delta = 0.1
+
   # optimization
   config.optim = optim = ml_collections.ConfigDict()
   optim.weight_decay = 0

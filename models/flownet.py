@@ -195,11 +195,10 @@ class FlowNet(nn.Module):
 
         return cascaded_flow
 
-    def multiscale_data_mse(self, veloc_pred: list[torch.Tensor], target):
+    def multiscale_data_mse(self, veloc_pred: list[torch.Tensor], target, error_fn=torch.nn.MSELoss()):
         h, w = veloc_pred[-1].shape[-2], veloc_pred[-1].shape[-1]
 
         weights = [12.7, 5.5, 4.35, 3.9, 3.4, 1.1][:len(veloc_pred)]
-        error_fn = torch.nn.MSELoss()
 
         v_loss = 0
         for i, weight in enumerate(weights):
@@ -321,8 +320,7 @@ class PressureNet(nn.Module):
         x = self.end(x)
         return x
 
-    def data_mse(self, pressure, target):
-        error_fn = torch.nn.MSELoss()
+    def data_mse(self, pressure, target, error_fn=torch.nn.MSELoss()):
         return error_fn(pressure, target[:,2:3])
 
 

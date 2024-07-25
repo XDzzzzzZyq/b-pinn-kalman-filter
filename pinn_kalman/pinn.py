@@ -15,6 +15,8 @@ from models.flownet import FlowNet, PressureNet
 from models.liteflownet import LiteFlowNet
 import torch.nn.functional as F
 
+from bayesian_torch.models.dnn_to_bnn import dnn_to_bnn
+
 def get_model(config):
     if config.model.arch == 'flownet':
         return FlowNet(config)
@@ -29,14 +31,14 @@ def get_model(config):
 
 # Define network structure, specified by a list of layers indicating the number of layers and neurons
 # 定义网络结构,由layer列表指定网络层数和神经元数
-class PINN_Net(nn.Module):
+class PINN(nn.Module):
 
     """
     Input:  field, t  := (x, y, f) : shape=(B, 3, N, N), (B, )
     Output: field_out := (u, v, p) : shape=(B, 3, N, N)
     """
     def __init__(self, config):
-        super(PINN_Net, self).__init__()
+        super(PINN, self).__init__()
         self.device = config.device
         flownet = get_model(config).to(self.device)
         #model = torch.nn.DataParallel(model)
@@ -70,8 +72,8 @@ class PINN_Net(nn.Module):
 
         # 获得预测的输出u,v,p
 
-        u = self.mask_u * flow
-        v = self.mask_v * flow
+        u = (self.mask_u * flow).sum(dim=1).unsqueeze(1)
+        v = (self.mask_v * flow).sum(dim=1).unsqueeze(1)
         p = pres
 
         # 通过自动微分计算各个偏导数,其中.sum()将矢量转化为标量，并无实际意义
@@ -89,70 +91,59 @@ class PINN_Net(nn.Module):
         v_yy = torch.autograd.grad(v_y.sum(), y, retain_graph=True)[0]
 
         # reshape
-        u = u[:, 0]
-        v = v[:, 1]
-        u_t = u_t[:, None, None]
-        v_t = v_t[:, None, None]
+        u_t = u_t[:,None,None,None]
+        v_t = v_t[:,None,None,None]
 
         # residual
         # 计算偏微分方程的残差
         #print(u_t.shape, u.shape, u_x.shape, p_x.shape)
-        f_equation_mass = u_x + v_y
         f_equation_x    = u_t + (u * u_x + v * u_y) + p_x - 1.0 / Re * (u_xx + u_yy)
         f_equation_y    = v_t + (u * v_x + v * v_y) + p_y - 1.0 / Re * (v_xx + v_yy)
+        f_equation_mass = u_x + v_y
+
         mse = torch.nn.MSELoss()
-        batch_t_zeros = torch.zeros_like(x, dtype=torch.float32, device=self.device)
+        batch_t_zeros = torch.zeros_like(x)
         mse_x    = mse(f_equation_x,    batch_t_zeros)
         mse_y    = mse(f_equation_y,    batch_t_zeros)
         mse_mass = mse(f_equation_mass, batch_t_zeros)
 
         return mse_x + mse_y + mse_mass
 
+class B_PINN(nn.Module):
+    def __init__(self, config, pretrained_pinn=None):
+        self.using_pretrained = pretrained_pinn is not None
+
+        super(B_PINN, self).__init__()
+        const_bnn_prior_parameters = {
+            "prior_mu": 0.0,
+            "prior_sigma": 1.0,
+            "posterior_mu_init": 0.0,
+            "posterior_rho_init": -3.0,
+            "type": "Reparameterization",               # Flipout or Reparameterization
+            "moped_enable": self.using_pretrained,           # True to initialize mu/sigma from the pretrained dnn weights
+            "moped_delta": config.model.bpinn_moped_delta, }
+
+        self.model = pretrained_pinn if self.using_pretrained else PINN(config)
+        dnn_to_bnn(self.model, const_bnn_prior_parameters)
+        self.model = self.model.to(config.device)
+
+        self.batch = config.training.batch_size
+
+    def forward(self, f1, f2, x, y, t):
+        flow, pressure = self.model(f1, f2, x, y, t)
+        return flow, pressure
+
+    def predict(self, f1, f2, x, y, t, n=64):
+        flow_pred = []
+        pres_pred = []
+        for mc_run in range(n):
+            flow, pressure = self.forward(f1, f2, x, y, t)
+            flow_pred.append(flow[-1])
+            pres_pred.append(pressure)
+        flow_pred = torch.stack(flow_pred, dim=1).mean(dim=1)
+        pres_pred = torch.stack(pres_pred, dim=1).mean(dim=1)
+
+        return flow_pred, pres_pred
+
 if __name__ == '__main__':
-    import matplotlib.pyplot as plt
-    from matplotlib import cm
-    from configs.pinn.pinn_pde import get_config
-
-    config = get_config()
-
-    Reynolds_number = 100  # 例子中的雷诺兹数
-
-    # 创建设备（允许CPU或GPU）
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-    # 初始模型、优化器和损失函数
-    model = PINN_Net(config)
-    state = torch.load("pinn_ns_model.pth", map_location=device)
-    model.load_state_dict(state)
-
-    # 可视化网格的设置
-    num_points = 100  # 可视化时每个维度的数据点数量
-    x_vis = np.linspace(0, 1, num_points)
-    y_vis = np.linspace(0, 1, num_points)
-    t_vis = np.array([1])  # 假设我们评估特定时间点t=1
-
-    # 创建网格数据
-    X_vis, Y_vis = np.meshgrid(x_vis, y_vis)
-    T_vis = np.full(X_vis.shape, t_vis)
-
-    # 将numpy数组转化为张量
-    X_tensor = torch.from_numpy(X_vis.reshape(-1, 1)).float().to(device).requires_grad_()
-    Y_tensor = torch.from_numpy(Y_vis.reshape(-1, 1)).float().to(device).requires_grad_()
-    T_tensor = torch.from_numpy(T_vis.reshape(-1, 1)).float().to(device).requires_grad_()
-
-    # 对网格上的点进行预测
-    with torch.no_grad():
-        u_pred, v_pred, p_pred = model.predict(X_tensor, Y_tensor, T_tensor)
-
-    # 将预测结果转换成numpy数组，并且调整形状以匹配图形
-    u_pred_np = u_pred.cpu().numpy().reshape(X_vis.shape)
-    # 使用matplotlib进行绘图
-    plt.figure(figsize=(10, 8))
-    contour = plt.contourf(X_vis, Y_vis, u_pred_np, 100, cmap=cm.viridis)
-    plt.colorbar(contour)
-    plt.title('Predicted u velocity field at t=0')
-    plt.xlabel('x')
-    plt.ylabel('y')
-    plt.show()
-
-    #u_gt = torch.autograd.grad(outputs=)
+    print(0)

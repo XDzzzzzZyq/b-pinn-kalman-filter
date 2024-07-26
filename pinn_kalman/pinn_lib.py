@@ -185,8 +185,8 @@ def train_bpinn(config, workdir, ckpt_dir):
     model = B_PINN(config)
 
     ema = ExponentialMovingAverage(model.parameters(), decay=config.model.ema_rate)
-    optimizer_flow = losses.get_optimizer(config, model.model.flownet.parameters())
-    optimizer_pres = losses.get_optimizer(config, model.model.pressurenet.parameters(), 0.001)
+    optimizer_flow = losses.get_optimizer(config, model.model.flownet.parameters(), config.optim.bpinn_lr_mul)
+    optimizer_pres = losses.get_optimizer(config, model.model.pressurenet.parameters(), config.optim.bpinn_lr_mul*0.05)
     state = dict(optimizer=(optimizer_flow, optimizer_pres), model=model, ema=ema, step=0)
 
     # Create checkpoints directory
@@ -278,9 +278,11 @@ if __name__ == "__main__":
     with torch.no_grad():
         flow_pred_pinn, pres_pred_pinn = model(f1, f2, x, y, t)
 
-    model = B_PINN(config, model)
+    workdir = "../workdir/pde-bpinn/checkpoints-meta/checkpoint.pth"
+    model = B_PINN(config)
+    model = utils.load_checkpoint(workdir, model, config.device)
     with torch.no_grad():
-        flow_pred_bpinn, pres_pred_bpinn = model.predict(f1, f2, x, y, t)
+        flow_pred_bpinn, pres_pred_bpinn = model.predict(f1, f2, x, y, t, n=16)
 
 
     mode = 0
@@ -309,9 +311,6 @@ if __name__ == "__main__":
         ax6.imshow(p)
 
         plt.show()
-        print(model.presnet.end[-1].weight, model.presnet.end[-1].bias)
-        print(pres_pred[0, 0].min(), pres_pred[0, 0].max())
-        print(t[0], target[0, 2].min(), target[0, 2].max())
 
     elif mode == 1:
         from torchview import draw_graph

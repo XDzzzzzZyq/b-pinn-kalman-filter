@@ -256,10 +256,13 @@ def train_bpinn(config, workdir, ckpt_dir):
             print(f">>> checkpoint_{save_step}.pth saved")
 
 if __name__ == "__main__":
+    import time
     import matplotlib.pyplot as plt
     import matplotlib.gridspec as gridspec
     from configs.pinn.pinn_pde import get_config
     config = get_config()
+    config.training.batch_size = 8
+
     model = PINN(config)
 
         # Build data iterators
@@ -281,41 +284,42 @@ if __name__ == "__main__":
     workdir = "../workdir/pde-bpinn/checkpoints-meta/checkpoint.pth"
     model = B_PINN(config)
     model = utils.load_checkpoint(workdir, model, config.device)
+    begin = time.time()
     with torch.no_grad():
-        flow_pred_bpinn, pres_pred_bpinn, flow_std, pres_std = model.predict(f1, f2, x, y, t, n=64)
-
+        flow_pred_bpinn, pres_pred_bpinn, f_pred, flow_std, pres_std, f_std = model.predict(f1, f2, x, y, t, n=16)
+    print(time.time() - begin)
 
     mode = 0
     if mode == 0:
 
-        fig = plt.figure(figsize=(30, 40))
-        gs = gridspec.GridSpec(3, 3, height_ratios=[1, 4, 1])
+        fig = plt.figure(figsize=(30, 80))
+        nrows, ncols = 4, 3
+        gs = gridspec.GridSpec(nrows, ncols, height_ratios=[1, 4, 1, 1])
 
-        ax1 = fig.add_subplot(gs[0, 0])
-        ax2 = fig.add_subplot(gs[0, 1])
-        ax3 = fig.add_subplot(gs[0, 2])
-        ax4 = fig.add_subplot(gs[1, 0])
-        ax5 = fig.add_subplot(gs[1, 1])
-        ax6 = fig.add_subplot(gs[1, 2])
-        ax7 = fig.add_subplot(gs[2, 0])
-        ax8 = fig.add_subplot(gs[2, 1])
-        ax9 = fig.add_subplot(gs[2, 2])
+        ax = []
+        for r in range(nrows):
+            for c in range(ncols):
+                ax.append(fig.add_subplot(gs[r, c]))
 
-        ax1.imshow(x[0, 0].cpu().detach().numpy())
-        ax2.imshow(y[0, 0].cpu().detach().numpy())
-        ax3.imshow(f2[0, 0].cpu().detach().numpy())
+        ax[0].imshow(x[0, 0].cpu().detach().numpy())
+        ax[1].imshow(y[0, 0].cpu().detach().numpy())
+        ax[2].imshow(f2[0, 0].cpu().detach().numpy())
 
         u = torch.cat([target[0, 0], flow_pred[-1][0, 0], flow_pred_pinn[-1][0, 0], flow_pred_bpinn[0, 0]]).cpu().detach().numpy()
         v = torch.cat([target[0, 1], flow_pred[-1][0, 1], flow_pred_pinn[-1][0, 1], flow_pred_bpinn[0, 1]]).cpu().detach().numpy()
         p = torch.cat([target[0, 2], pres_pred[0, 0], pres_pred_pinn[0, 0], pres_pred_bpinn[0, 0]]).cpu().detach().numpy()
 
-        ax4.imshow(u)
-        ax5.imshow(v)
-        ax6.imshow(p)
+        ax[3].imshow(u)
+        ax[4].imshow(v)
+        ax[5].imshow(p)
 
-        ax7.imshow(flow_std[0, 0].cpu().detach().numpy())
-        ax8.imshow(flow_std[0, 1].cpu().detach().numpy())
-        ax9.imshow(pres_std[0, 0].cpu().detach().numpy())
+        ax[6].imshow(flow_std[0, 0].cpu().detach().numpy())
+        ax[7].imshow(flow_std[0, 1].cpu().detach().numpy())
+        ax[8].imshow(pres_std[0, 0].cpu().detach().numpy())
+
+        ax[9 ].imshow(f_pred[0, 0].cpu().detach().numpy())
+        ax[10].imshow(f_std[0, 0].cpu().detach().numpy())
+        ax[11].imshow(f_std[0, 0].cpu().detach().numpy())
 
         plt.show()
 

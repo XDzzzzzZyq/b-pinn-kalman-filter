@@ -11,7 +11,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from models.ddpm import UNet, MLP
-from models.flownet import FlowNet, PressureNet
+from models.flownet import FlowNet, PressureNet, project
 from models.liteflownet import LiteFlowNet
 import torch.nn.functional as F
 
@@ -112,6 +112,7 @@ class PINN(nn.Module):
 class B_PINN(PINN):
     def __init__(self, config, pretrained_pinn:PINN=None):
         self.using_pretrained = pretrained_pinn is not None
+        self.dt = config.data.dt
 
         super(B_PINN, self).__init__(config)
         flow_bnn_prior_parameters = {
@@ -144,17 +145,38 @@ class B_PINN(PINN):
         self.pressurenet = self.pressurenet.to(config.device)
         self.batch = config.training.batch_size
 
-    def predict(self, f1, f2, x, y, t, n=64):
+    def sample_uvp(self, f1, f2, x, y, t, n=64):
         flow_pred = []
         pres_pred = []
         for mc_run in range(n):
             flow, pressure = self.forward(f1, f2, x, y, t)
             flow_pred.append(flow[-1])
             pres_pred.append(pressure)
+
+        return flow_pred, pres_pred
+
+    def predict(self, f1, f2, x, y, t, n=64):
+        """
+        Complete MC Sampling with n samples
+        """
+
+        flow_pred, pres_pred = self.sample_uvp(f1, f2, x, y, t, n)
+
+        f_pred = []
+        for flow in flow_pred:
+            f = project(f2, flow, self.dt)
+            f_pred.append(f)
+
         flow_pred = torch.stack(flow_pred, dim=0)
         pres_pred = torch.stack(pres_pred, dim=0)
+        f_pred    = torch.stack(f_pred, dim=0)
 
-        return flow_pred.mean(dim=0), pres_pred.mean(dim=0), flow_pred.std(dim=0), pres_pred.std(dim=0)
+        return (flow_pred.mean(dim=0),
+                pres_pred.mean(dim=0),
+                f_pred.mean(dim=0),
+                flow_pred.std(dim=0),
+                pres_pred.std(dim=0),
+                f_pred.std(dim=0))
 
     def uncertainty(self, flow, pres):
         return 0

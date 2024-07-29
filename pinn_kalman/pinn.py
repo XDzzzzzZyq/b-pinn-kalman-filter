@@ -40,10 +40,11 @@ class PINN(nn.Module):
     def __init__(self, config):
         super(PINN, self).__init__()
         self.device = config.device
-        flownet = get_model(config).to(self.device)
-        #model = torch.nn.DataParallel(model)
-        self.flownet = flownet
+        self.dt = config.data.dt
+
+        self.flownet = get_model(config).to(self.device)
         self.pressurenet = PressureNet(config).to(self.device)
+
         self.mask_u, self.mask_v = self.get_mask(config)
 
     def get_mask(self, config):
@@ -59,8 +60,8 @@ class PINN(nn.Module):
 
         return mask1, mask2
 
-    def forward(self, f1, f2, x, y, t):
-        flow = self.flownet(f1, f2, x, y, t)
+    def forward(self, f1, f2, x, y, t, size=None):
+        flow = self.flownet(f1, f2, x, y, t, size=size)
         pressure = self.pressurenet(flow, x, y, t)
         return flow, pressure
 
@@ -109,10 +110,12 @@ class PINN(nn.Module):
 
         return mse_x + mse_y + mse_mass
 
+    def step(self, ft, u):
+        return project(ft, u, self.dt)
+
 class B_PINN(PINN):
     def __init__(self, config, pretrained_pinn:PINN=None):
         self.using_pretrained = pretrained_pinn is not None
-        self.dt = config.data.dt
 
         super(B_PINN, self).__init__(config)
         flow_bnn_prior_parameters = {
@@ -164,7 +167,7 @@ class B_PINN(PINN):
 
         f_pred = []
         for flow in flow_pred:
-            f = project(f2, flow, self.dt)
+            f = self.step(f2, flow)
             f_pred.append(f)
 
         flow_pred = torch.stack(flow_pred, dim=0)

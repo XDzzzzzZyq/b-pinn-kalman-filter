@@ -60,7 +60,6 @@ def get_conv_up_layer(out_channels):
 class FeatureExtractor(nn.Module):
     def __init__(self, config):
         super(FeatureExtractor, self).__init__()
-        self.C, self.H, self.W = config.data.num_channels, config.data.image_size, config.data.image_size
         self.fln = len(config.model.feature_nums)  # num of feature layers
 
         self.spatial_emb = functools.partial(
@@ -70,7 +69,7 @@ class FeatureExtractor(nn.Module):
         self.semb_down = torch.nn.AvgPool2d(kernel_size=2, stride=2, padding=0)
 
         feature_extractors = []
-        ch_i = self.C
+        ch_i = config.data.num_channels
         for i in range(self.fln):
             ch_o = config.model.feature_nums[i]
             feature_extractors.append(get_conv_feature_layer(ch_i, ch_o))
@@ -84,7 +83,6 @@ class FeatureExtractor(nn.Module):
         for idx, layer in enumerate(self.feature_extractors):
             channel = f.shape[1]
             temb = layers.get_timestep_embedding(t, channel)[:,:,None,None]
-
             f = layer(f + semb + temb)
             result.append(f)
             semb = self.semb_down(semb)
@@ -153,14 +151,13 @@ class InferenceUnit(nn.Module):
 
 
 class Upsample(nn.Module):
-    def __init__(self, size):
+    def __init__(self):
         super(Upsample, self).__init__()
 
         self.up = get_conv_up_layer(2)
-        self.size = size
 
-    def forward(self, f1, f2, x):
-        x = F.interpolate(input=x, size=self.size, mode='bilinear', align_corners=False)
+    def forward(self, f1, f2, x, size):
+        x = F.interpolate(input=x, size=size, mode='bilinear', align_corners=False)
         block = torch.cat([f1, f2, x], dim=1)
 
         return x + self.up(block)
@@ -176,9 +173,9 @@ class FlowNet(nn.Module):
         levels = [l for l in range(len(config.model.feature_nums))][::-1] # level n-1, n-2, ..., 0
         self.inference_units = nn.ModuleList([InferenceUnit(config, level) for level in levels])
 
-        self.upsample = Upsample(self.size)
+        self.upsample = Upsample()
 
-    def forward(self, f1, f2, x, y, t):
+    def forward(self, f1, f2, x, y, t, size=None):
         f1_features = self.feature_extractor(f1, x, y, t)
         f2_features = self.feature_extractor(f2, x, y, t)
         
@@ -190,7 +187,7 @@ class FlowNet(nn.Module):
             flow= unit(feature1, feature2, flow)
             cascaded_flow.append(flow)
         
-        flow = self.upsample(f1, f2, flow)
+        flow = self.upsample(f1, f2, flow, self.size if size is None else size)
         cascaded_flow.append(flow)
 
         return cascaded_flow

@@ -72,8 +72,8 @@ def restore_bpinn_checkpoint(pinn_ckpt_dir, bpinn_ckpt_dir, state, config):
             pretrained = load_checkpoint(pinn_ckpt_dir, pretrained, config.device)
             model = pinn.B_PINN(config, pretrained)
 
-            optimizer_flow = losses.get_optimizer(config, model.model.flownet.parameters(), config.optim.bpinn_lr_mul)
-            optimizer_pres = losses.get_optimizer(config, model.model.pressurenet.parameters(), config.optim.bpinn_lr_mul*0.05)
+            optimizer_flow = losses.get_optimizer(config, model.flownet.parameters(), is_bpinn=True)
+            optimizer_pres = losses.get_optimizer(config, model.pressurenet.parameters(), is_bpinn=True, lr_mul=.05)
 
             state['model'] = model
             state['optimizer'] = (optimizer_flow, optimizer_pres)

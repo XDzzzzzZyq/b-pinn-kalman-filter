@@ -109,29 +109,40 @@ class PINN(nn.Module):
 
         return mse_x + mse_y + mse_mass
 
-class B_PINN(nn.Module):
-    def __init__(self, config, pretrained_pinn=None):
+class B_PINN(PINN):
+    def __init__(self, config, pretrained_pinn:PINN=None):
         self.using_pretrained = pretrained_pinn is not None
 
-        super(B_PINN, self).__init__()
-        const_bnn_prior_parameters = {
+        super(B_PINN, self).__init__(config)
+        flow_bnn_prior_parameters = {
             "prior_mu": 0.0,
-            "prior_sigma": 1.0,
+            "prior_sigma": 0.1,
             "posterior_mu_init": 0.0,
             "posterior_rho_init": -3.0,
-            "type": "Reparameterization",               # Flipout or Reparameterization
-            "moped_enable": self.using_pretrained,           # True to initialize mu/sigma from the pretrained dnn weights
+            "type": "Reparameterization",
+            "moped_enable": self.using_pretrained,
             "moped_delta": config.model.bpinn_moped_delta, }
 
-        self.model = pretrained_pinn if self.using_pretrained else PINN(config)
-        dnn_to_bnn(self.model, const_bnn_prior_parameters)
-        self.model = self.model.to(config.device)
+        pres_bnn_prior_parameters = {
+            "prior_mu": 0.0,
+            "prior_sigma": 0.01,
+            "posterior_mu_init": 0.0,
+            "posterior_rho_init": -0.5,
+            "type": "Reparameterization",
+            "moped_enable": self.using_pretrained,
+            "moped_delta": config.model.bpinn_moped_delta,
+        }
 
+        if self.using_pretrained:
+            self.flownet = pretrained_pinn.flownet
+            self.pressurenet = pretrained_pinn.pressurenet
+
+        dnn_to_bnn(self.flownet,     flow_bnn_prior_parameters)
+        dnn_to_bnn(self.pressurenet, pres_bnn_prior_parameters)
+
+        self.flownet = self.flownet.to(config.device)
+        self.pressurenet = self.pressurenet.to(config.device)
         self.batch = config.training.batch_size
-
-    def forward(self, f1, f2, x, y, t):
-        flow, pressure = self.model(f1, f2, x, y, t)
-        return flow, pressure
 
     def predict(self, f1, f2, x, y, t, n=64):
         flow_pred = []
@@ -140,10 +151,13 @@ class B_PINN(nn.Module):
             flow, pressure = self.forward(f1, f2, x, y, t)
             flow_pred.append(flow[-1])
             pres_pred.append(pressure)
-        flow_pred = torch.stack(flow_pred, dim=1).mean(dim=1)
-        pres_pred = torch.stack(pres_pred, dim=1).mean(dim=1)
+        flow_pred = torch.stack(flow_pred, dim=0)
+        pres_pred = torch.stack(pres_pred, dim=0)
 
-        return flow_pred, pres_pred
+        return flow_pred.mean(dim=0), pres_pred.mean(dim=0), flow_pred.std(dim=0), pres_pred.std(dim=0)
+
+    def uncertainty(self, flow, pres):
+        return 0
 
 if __name__ == '__main__':
     print(0)

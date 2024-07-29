@@ -185,8 +185,8 @@ def train_bpinn(config, workdir, ckpt_dir):
     model = B_PINN(config)
 
     ema = ExponentialMovingAverage(model.parameters(), decay=config.model.ema_rate)
-    optimizer_flow = losses.get_optimizer(config, model.model.flownet.parameters(), config.optim.bpinn_lr_mul)
-    optimizer_pres = losses.get_optimizer(config, model.model.pressurenet.parameters(), config.optim.bpinn_lr_mul*0.05)
+    optimizer_flow = losses.get_optimizer(config, model.flownet.parameters(), is_bpinn=True)
+    optimizer_pres = losses.get_optimizer(config, model.pressurenet.parameters(), is_bpinn=True, lr_mul=.05)
     state = dict(optimizer=(optimizer_flow, optimizer_pres), model=model, ema=ema, step=0)
 
     # Create checkpoints directory
@@ -202,11 +202,11 @@ def train_bpinn(config, workdir, ckpt_dir):
     eval_iter = iter(eval_ds)  # pytype: disable=wrong-arg-types
 
     # Build one-step training and evaluation functions
-    optimize_fn = losses.optimization_manager(config)
+    optimize_fn = losses.optimization_manager(config, is_bpinn=True)
     train_step_fn = losses.get_prelim_step_fn(config, train=True, optimize_fn=optimize_fn, is_bpinn=True)
     eval_step_fn = losses.get_prelim_step_fn(config, train=False, optimize_fn=optimize_fn, is_bpinn=True)
 
-    num_train_steps = config.training.n_iters
+    num_train_steps = config.training.n_bpinn_iters
     print("num_train_steps", num_train_steps)
 
     # In case there are multiple hosts (e.g., TPU pods), only log to host 0
@@ -282,14 +282,14 @@ if __name__ == "__main__":
     model = B_PINN(config)
     model = utils.load_checkpoint(workdir, model, config.device)
     with torch.no_grad():
-        flow_pred_bpinn, pres_pred_bpinn = model.predict(f1, f2, x, y, t, n=16)
+        flow_pred_bpinn, pres_pred_bpinn, flow_std, pres_std = model.predict(f1, f2, x, y, t, n=64)
 
 
     mode = 0
     if mode == 0:
 
         fig = plt.figure(figsize=(30, 40))
-        gs = gridspec.GridSpec(2, 3, height_ratios=[1, 4])
+        gs = gridspec.GridSpec(3, 3, height_ratios=[1, 4, 1])
 
         ax1 = fig.add_subplot(gs[0, 0])
         ax2 = fig.add_subplot(gs[0, 1])
@@ -297,6 +297,9 @@ if __name__ == "__main__":
         ax4 = fig.add_subplot(gs[1, 0])
         ax5 = fig.add_subplot(gs[1, 1])
         ax6 = fig.add_subplot(gs[1, 2])
+        ax7 = fig.add_subplot(gs[2, 0])
+        ax8 = fig.add_subplot(gs[2, 1])
+        ax9 = fig.add_subplot(gs[2, 2])
 
         ax1.imshow(x[0, 0].cpu().detach().numpy())
         ax2.imshow(y[0, 0].cpu().detach().numpy())
@@ -309,6 +312,10 @@ if __name__ == "__main__":
         ax4.imshow(u)
         ax5.imshow(v)
         ax6.imshow(p)
+
+        ax7.imshow(flow_std[0, 0].cpu().detach().numpy())
+        ax8.imshow(flow_std[0, 1].cpu().detach().numpy())
+        ax9.imshow(pres_std[0, 0].cpu().detach().numpy())
 
         plt.show()
 

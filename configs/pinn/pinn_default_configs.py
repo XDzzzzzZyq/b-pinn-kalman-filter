@@ -10,6 +10,7 @@ def get_default_configs():
 
   training.n_iters = 35000
   training.n_pinn_iters = 25000
+  training.n_bpinn_iters = 40000
   training.snapshot_freq = 5000
   training.snapshot_freq_for_preemption = 250 ## store additional checkpoints for preemption in cloud computing environments
   training.log_freq = 5
@@ -36,14 +37,15 @@ def get_default_configs():
   model.spatial_embed_s_flow = 100
   model.spatial_embed_s_pres = 100
 
-  model.bpinn_moped_delta = 0.05
+  model.bpinn_moped_delta = 0.01
 
   # optimization
   config.optim = optim = ml_collections.ConfigDict()
   optim.weight_decay = 10
+  optim.bpinn_weight_decay = 0
   optim.optimizer = 'Adam'
   optim.lr = 0.0005
-  optim.bpinn_lr_mul = 10
+  optim.bpinn_lr = 0.0005
   optim.beta1 = 0.9
   optim.eps = 1e-8
   optim.warmup = 100

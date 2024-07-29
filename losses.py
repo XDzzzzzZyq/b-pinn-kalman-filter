@@ -26,21 +26,34 @@ from sde_lib import VESDE, VPSDE
 from bayesian_torch.models.dnn_to_bnn import get_kl_loss
 
 
-def get_optimizer(config, params, lr_mul=1.0):
+def get_optimizer(config, params, lr_mul=1.0, is_bpinn=False):
     """Returns a flax optimizer object based on `config`."""
+
+    if is_bpinn:
+        lr = config.optim.bpinn_lr
+        decay = config.optim.bpinn_weight_decay
+    else:
+        lr = config.optim.lr
+        decay = config.optim.weight_decay
+
     if config.optim.optimizer == 'Adam':
-        optimizer = optim.Adam(params, lr=config.optim.lr*lr_mul, betas=(config.optim.beta1, 0.999), eps=config.optim.eps,
-                               weight_decay=config.optim.weight_decay)
+        optimizer = optim.Adam(params, lr=lr*lr_mul, betas=(config.optim.beta1, 0.999), eps=config.optim.eps,
+                               weight_decay=decay)
     else:
         raise NotImplementedError(f'Optimizer {config.optim.optimizer} not supported yet!')
 
     return optimizer
 
 
-def optimization_manager(config):
+def optimization_manager(config, is_bpinn=False):
     """Returns an optimize_fn based on `config`."""
 
-    def optimize_fn(optimizer, params, step, lr=config.optim.lr, warmup=config.optim.warmup,
+    if is_bpinn:
+        lr = config.optim.bpinn_lr
+    else:
+        lr = config.optim.lr
+
+    def optimize_fn(optimizer, params, step, lr=lr, warmup=config.optim.warmup,
                     grad_clip=config.optim.grad_clip):
         """Optimizes with warmup and gradient clipping (disabled if negative)."""
         if warmup > 0:
@@ -222,7 +235,11 @@ def get_prelim_step_fn(config, train, optimize_fn, is_bpinn=False):
     error_fn = torch.nn.MSELoss()
 
     def kl_loss_fn(model):
-        return get_kl_loss(model) / config.training.batch_size
+        kl_loss = get_kl_loss(model)
+        if kl_loss is not None:
+            return kl_loss / config.training.batch_size
+        else:
+            return 0.0
 
     def flow_loss_fn(model, batch):
 
@@ -232,7 +249,7 @@ def get_prelim_step_fn(config, train, optimize_fn, is_bpinn=False):
         v_loss = model.multiscale_data_mse(veloc_pred, target, error_fn=error_fn)
 
         if is_bpinn:
-            return v_loss + kl_loss_fn(model)
+            return v_loss + kl_loss_fn(model) * 0.1
         else:
             return v_loss
 
@@ -251,14 +268,14 @@ def get_prelim_step_fn(config, train, optimize_fn, is_bpinn=False):
         p_loss = model.data_mse(pres_pred, target, error_fn=error_fn)
 
         if is_bpinn:
-            return p_loss + kl_loss_fn(model)
+            return p_loss + kl_loss_fn(model) * 0.01
         else:
             return p_loss
 
     def step_fn(state, batch):
         model = state['model']
-        flownet = model.model.flownet
-        pressurenet = model.model.pressurenet
+        flownet = model.flownet
+        pressurenet = model.pressurenet
 
         if train:
             optimizer_flow, optimizer_pres = state['optimizer']
@@ -320,7 +337,7 @@ def get_pinn_step_fn(config, train, optimize_fn):
         p_loss = model.pressurenet.data_mse(pres_pred, target)
         data_loss = v_loss + p_loss
 
-        pinn_loss = model.equation_mse(x, y, t, flow_pred[-1], pres_pred, 100000) * config.training.pinn_loss_weight
+        pinn_loss = model.equation_mse(x, y, t, flow_pred[-1], pres_pred, 10000000.0) * config.training.pinn_loss_weight
 
         return pinn_loss + data_loss, pinn_loss, data_loss
 

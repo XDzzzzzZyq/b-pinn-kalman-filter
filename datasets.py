@@ -242,6 +242,7 @@ def get_dataset(config, uniform_dequantization=False, evaluation=False):
 
         data = Dataset(
             f'/data1/DATA_PUBLIC/Southern_Ocean/bsose_i122_{config.data.date_range}_{config.data.category}.nc')
+        print(data.description)
         data = data[config.data.key]
 
         transform = transforms.Compose([
@@ -256,6 +257,7 @@ def get_dataset(config, uniform_dequantization=False, evaluation=False):
         from netCDF4 import Dataset
 
         data = Dataset('/data1/40000-25-400-200.nc')
+        print(data.description)
         data = data['data']
 
         transform = transforms.Compose([

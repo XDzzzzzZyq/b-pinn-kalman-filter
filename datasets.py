@@ -256,7 +256,7 @@ def get_dataset(config, uniform_dequantization=False, evaluation=False):
 
         from netCDF4 import Dataset
 
-        data = Dataset('/data1/40000-25-400-200.nc')
+        data = Dataset('/data1/DATA_PUBLIC/40000-25-400-200.nc')
         print(data.description)
         data = data['data']
 
@@ -270,8 +270,8 @@ def get_dataset(config, uniform_dequantization=False, evaluation=False):
         raise NotImplementedError(
             f'Dataset {config.data.dataset} not yet supported.')
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4, drop_last=True)
 
     return train_loader, test_loader
 
@@ -293,7 +293,7 @@ def get_mask_dataset(config):
                                         Binarize(config.inverse.ratio, not config.inverse.invert),
                                         Repeat(config.training.batch_size)])
 
-        rnd_mask = torch.rand(16, 2, config.data.image_size, config.data.image_size)
+        rnd_mask = torch.rand(1600, 2, config.data.image_size, config.data.image_size)
         mask_dataset = CustomDataset(rnd_mask, split='train', transform=transform, remove_mask=False)
 
     mask_loader = DataLoader(mask_dataset, batch_size=1, shuffle=True, num_workers=4)

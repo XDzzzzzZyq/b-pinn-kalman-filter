@@ -1,6 +1,6 @@
 import datasets
-from .operators import InpaintOperator
-from .conditional_sampling import get_sampler
+from inverse.operators import get_operator
+from inverse.conditional_sampling import get_sampler
 from models import utils as mutils
 from utils import save_checkpoint, load_checkpoint, restore_checkpoint
 import os
@@ -20,20 +20,6 @@ def _show_result(result):
     fig, axe = plt.subplots(nrows=1, ncols=1, figsize=(20, 20))
     axe.imshow(image_grid[0])
     plt.show()
-
-def get_operator(config):
-
-    if config.inverse.operator in ['inpaint', 'inpaint_rnd']:
-        mask_ds = datasets.get_mask_dataset(config)
-        mask_iter = iter(mask_ds)
-        mask, _ = next(mask_iter)
-
-        operator = InpaintOperator(mask=mask.squeeze(0).to(config.device))
-
-    else:
-        raise NotImplementedError
-
-    return operator
 
 def get_obsvsde(config, y0, operator):
     from run_lib import _get_sde

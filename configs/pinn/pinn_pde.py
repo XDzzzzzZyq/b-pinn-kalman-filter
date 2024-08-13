@@ -10,4 +10,11 @@ def get_config():
   data.dt = 1.7
   data.time_trim = 300
 
+  # inpaint
+  inverse = config.inverse = ml_collections.ConfigDict()
+  inverse.operator = 'inpaint_rnd'
+  inverse.invert = False
+  inverse.ratio = 0.9
+  inverse.variance = 0.0001
+
   return config

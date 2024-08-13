@@ -241,9 +241,11 @@ def get_prelim_step_fn(config, train, optimize_fn, is_bpinn=False):
         else:
             return 0.0
 
-    def flow_loss_fn(model, batch):
+    def flow_loss_fn(model, operator, batch):
 
         f1, f2, x, y, t, target = batch
+        f1 = operator(f1, keep_shape=True) + torch.randn_like(f1) * config.inverse.variance ** 0.5
+        f2 = operator(f2, keep_shape=True) + torch.randn_like(f2) * config.inverse.variance ** 0.5
 
         veloc_pred = model(f1, f2, x, y, t)
         v_loss = model.multiscale_data_mse(veloc_pred, target, error_fn=error_fn)
@@ -272,10 +274,11 @@ def get_prelim_step_fn(config, train, optimize_fn, is_bpinn=False):
         else:
             return p_loss
 
-    def step_fn(state, batch):
+    def step_fn(state, operator, batch):
         model = state['model']
         flownet = model.flownet
         pressurenet = model.pressurenet
+        operator.next()
 
         if train:
             optimizer_flow, optimizer_pres = state['optimizer']
@@ -287,7 +290,7 @@ def get_prelim_step_fn(config, train, optimize_fn, is_bpinn=False):
             flownet.train()
 
             optimizer_flow.zero_grad()
-            v_loss = flow_loss_fn(flownet, batch)
+            v_loss = flow_loss_fn(flownet, operator, batch)
 
             v_loss.backward()
             optimize_fn(optimizer_flow, flownet.parameters(), step=state['step'])
@@ -315,7 +318,7 @@ def get_prelim_step_fn(config, train, optimize_fn, is_bpinn=False):
             ema = state['ema']
             ema.store(model.parameters())
             ema.copy_to(model.parameters())
-            v_loss = flow_loss_fn(flownet, batch)
+            v_loss = flow_loss_fn(flownet, operator, batch)
             p_loss = pres_loss_fn(pressurenet, batch)
             ema.restore(model.parameters())
 
@@ -328,9 +331,11 @@ def get_prelim_step_fn(config, train, optimize_fn, is_bpinn=False):
 
 def get_pinn_step_fn(config, train, optimize_fn):
 
-    def loss_fn(model, batch):
+    def loss_fn(model, operator, batch):
 
         f1, f2, x, y, t, target = batch
+        f1 = operator(f1, keep_shape=True) + torch.randn_like(f1) * config.inverse.variance ** 0.5
+        f2 = operator(f2, keep_shape=True) + torch.randn_like(f2) * config.inverse.variance ** 0.5
         flow_pred, pres_pred = model(f1, f2, x, y, t)
 
         v_loss = model.flownet.multiscale_data_mse(flow_pred, target)
@@ -341,8 +346,9 @@ def get_pinn_step_fn(config, train, optimize_fn):
 
         return pinn_loss + data_loss, pinn_loss, data_loss
 
-    def step_fn(state, batch):
+    def step_fn(state, operator, batch):
         model = state['model']
+        operator.next()
 
         if train:
             optimizer_flow, optimizer_pres = state['optimizer']
@@ -350,7 +356,7 @@ def get_pinn_step_fn(config, train, optimize_fn):
             model.train()
             optimizer_flow.zero_grad()
             optimizer_pres.zero_grad()
-            loss, pinn_loss, data_loss = loss_fn(model, batch)
+            loss, pinn_loss, data_loss = loss_fn(model, operator, batch)
 
             layer = model.pressurenet.end[-1]
             w = layer.weight
@@ -372,7 +378,7 @@ def get_pinn_step_fn(config, train, optimize_fn):
             ema = state['ema']
             ema.store(model.parameters())
             ema.copy_to(model.parameters())
-            loss, pinn_loss, data_loss = loss_fn(model, batch)
+            loss, pinn_loss, data_loss = loss_fn(model, operator, batch)
             ema.restore(model.parameters())
 
         return loss, pinn_loss, data_loss

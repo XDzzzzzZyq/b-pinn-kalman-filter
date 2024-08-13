@@ -2,12 +2,32 @@ from abc import ABC, abstractmethod
 import numpy as np
 import torch
 
+import datasets
+
+
+def get_operator(config):
+
+    if config.inverse.operator in ['inpaint', 'inpaint_rnd']:
+        mask_ds = datasets.get_mask_dataset(config)
+        operator = InpaintOperator(mask=mask_ds)
+
+    else:
+        raise NotImplementedError
+
+    return operator
 
 class LinearOperators(ABC):
 
     def __init__(self, **kwargs):
         self.params = kwargs
+        self.iter = None
+
+        self.next()
         self.A, self.pL, self.T = self._decompose(None)  # A = pL * T
+
+    @abstractmethod
+    def next(self):
+        pass
 
     @abstractmethod
     def __call__(self, x, keep_shape=False):
@@ -111,21 +131,32 @@ def bcmm(m, v):
 
 class InpaintOperator(LinearOperators):
 
+    def next(self):
+        if self.iter is None:
+            self.iter = iter(self.params['mask'])
+
+        try:
+            self.mask = next(self.iter)[0].squeeze(0)
+        except StopIteration:
+            self.iter = iter(self.params['mask'])
+            self.mask = next(self.iter)[0].squeeze(0)
+
     def __call__(self, x, keep_shape=True, invert=False):
-        assert self.params['mask'].shape == x.shape
+        assert self.mask.shape == x.shape
+        self.mask = self.mask.to(x.device)
 
         if keep_shape:
             if invert:
-                return (1-self.params['mask']) * x
+                return (1-self.mask) * x
             else:
-                return self.params['mask'] * x
+                return self.mask * x
         else:
             if invert:
-                assert self.params['mask'].ndim == 4
-                N, _, A, B = self.params['mask'].shape
-                mat = torch.zeros((N, A * B, A * B)).to(self.params['mask'].device)
+                assert self.mask.ndim == 4
+                N, _, A, B = self.mask.shape
+                mat = torch.zeros((N, A * B, A * B)).to(self.mask.device)
                 for i in range(N):
-                    mat[i] = self._get_single_mat(1-self.params['mask'][i])
+                    mat[i] = self._get_single_mat(1-self.mask[i])
                 L = [self._get_single_decomposed_mat(m)[0] for m in mat.squeeze()]
                 L = torch.stack(L)[:,None,:,:]
 
@@ -134,30 +165,30 @@ class InpaintOperator(LinearOperators):
                 return bcmm(self.pL, x)
 
     def _get_single_mat(self, mat):
-        return torch.diag(mat.flatten()).to(self.params['mask'].device)
+        return torch.diag(mat.flatten()).to(self.mask.device)
 
     def _get_single_decomposed_mat(self, mat):
         return (mat[torch.where(mat.sum(axis=1) == 1)[0]].T,
                 1)
 
     def _to_matrix(self, shape):
-        if self.params['mask'].ndim == 2:
-            return self._get_single_mat(self.params['mask'])
-        elif self.params['mask'].ndim == 4:
-            N, _, A, B = self.params['mask'].shape
-            mat = torch.zeros((N, A*B, A*B)).to(self.params['mask'].device)
+        if self.mask.ndim == 2:
+            return self._get_single_mat(self.mask)
+        elif self.mask.ndim == 4:
+            N, _, A, B = self.mask.shape
+            mat = torch.zeros((N, A*B, A*B)).to(self.mask.device)
             for i in range(N):
-                mat[i] = self._get_single_mat(self.params['mask'][i])
+                mat[i] = self._get_single_mat(self.mask[i])
 
             return mat[:,None,:,:]
         else:
             raise ValueError('wrong shape')
     def _decompose(self, shape):
         mat = self._to_matrix(shape)
-        if self.params['mask'].ndim == 2:
+        if self.mask.ndim == 2:
             return (mat,
                     *self._get_single_decomposed_mat(mat))
-        elif self.params['mask'].ndim == 4:
+        elif self.mask.ndim == 4:
             L = [self._get_single_decomposed_mat(m)[0] for m in mat.squeeze()]
             return (mat,
                     torch.stack(L)[:,None,:,:],

@@ -1,6 +1,7 @@
 import os
 import tensorboard
 from pinn_kalman.pinn import PINN, B_PINN
+from inverse.operators import get_operator
 import losses
 import torch
 import logging
@@ -29,7 +30,7 @@ def train(config, workdir):
     writer = tensorboard.SummaryWriter(tb_dir)
 
     model = PINN(config)
-
+    operator = get_operator(config)
 
     '''
     
@@ -73,7 +74,7 @@ def train(config, workdir):
             batch = next(train_iter)
 
         # Execute one training step
-        loss, v_loss, p_loss = train_step_fn(state, unbatch(config, batch))
+        loss, v_loss, p_loss = train_step_fn(state, operator, unbatch(config, batch))
 
         if step % config.training.log_freq == 0:
             logging.info(
@@ -90,7 +91,7 @@ def train(config, workdir):
 
                 batch = next(eval_iter)
 
-            loss, v_loss, p_loss = eval_step_fn(state, unbatch(config, batch))
+            loss, v_loss, p_loss = eval_step_fn(state, operator, unbatch(config, batch))
             logging.info(
                 "step: %d, eval_loss: %.5e = (%.5e, %.5e)" % (step, loss.item(), v_loss.item(), p_loss.item()))
             writer.add_scalar("eval_vel_loss", v_loss, step)
@@ -141,7 +142,7 @@ def train(config, workdir):
             batch = next(train_iter)
 
         # Execute one training step
-        loss, loss_pinn, loss_data = train_step_fn(state, unbatch(config, batch))
+        loss, loss_pinn, loss_data = train_step_fn(state, operator, unbatch(config, batch))
 
         if step % config.training.log_freq == 0:
             logging.info(
@@ -158,7 +159,7 @@ def train(config, workdir):
 
                 batch = next(eval_iter)
 
-            loss, loss_pinn, loss_data = eval_step_fn(state, unbatch(config, batch))
+            loss, loss_pinn, loss_data = eval_step_fn(state, operator, unbatch(config, batch))
             logging.info("step: %d, eval_pinn_loss: %.5e = (%.5e, %.5e)" % (
             step, loss.item(), loss_pinn.item(), loss_data.item()))
             writer.add_scalar("eval_pinn_loss", loss_pinn, step)
@@ -183,6 +184,7 @@ def train_bpinn(config, workdir, ckpt_dir):
     writer = tensorboard.SummaryWriter(tb_dir)
 
     model = B_PINN(config)
+    operator = get_operator(config)
 
     ema = ExponentialMovingAverage(model.parameters(), decay=config.model.ema_rate)
     optimizer_flow = losses.get_optimizer(config, model.flownet.parameters(), is_bpinn=True)
@@ -220,7 +222,7 @@ def train_bpinn(config, workdir, ckpt_dir):
             batch = next(train_iter)
 
         # Execute one training step
-        loss, v_loss, p_loss = train_step_fn(state, unbatch(config, batch))
+        loss, v_loss, p_loss = train_step_fn(state, operator, unbatch(config, batch))
 
         if step % config.training.log_freq == 0:
             logging.info(
@@ -237,7 +239,7 @@ def train_bpinn(config, workdir, ckpt_dir):
 
                 batch = next(eval_iter)
 
-            loss, v_loss, p_loss = eval_step_fn(state, unbatch(config, batch))
+            loss, v_loss, p_loss = eval_step_fn(state, operator, unbatch(config, batch))
             logging.info(
                 "step: %d, eval_loss: %.5e = (%.5e, %.5e)" % (step, loss.item(), v_loss.item(), p_loss.item()))
             writer.add_scalar("eval_vel_loss", v_loss, step)
@@ -264,6 +266,7 @@ if __name__ == "__main__":
     config.training.batch_size = 8
 
     model = PINN(config)
+    operator = get_operator(config)
 
         # Build data iterators
     _, eval_ds = datasets.get_dataset(config,
@@ -273,6 +276,9 @@ if __name__ == "__main__":
     workdir = "../workdir/pde-pinn/checkpoints-meta/checkpoint.pth"
     model = utils.load_checkpoint(workdir, model, config.device)
     f1, f2, x, y, t, target = unbatch(config, next(eval_iter))
+    f1 = operator(f1, keep_shape=True) + torch.randn_like(f1) * config.inverse.variance ** 0.5
+    f2 = operator(f2, keep_shape=True) + torch.randn_like(f2) * config.inverse.variance ** 0.5
+
     with torch.no_grad():
         flow_pred, pres_pred = model(f1, f2, x, y, t)
 

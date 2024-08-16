@@ -298,9 +298,9 @@ if __name__ == "__main__":
     mode = 0
     if mode == 0:
 
-        fig = plt.figure(figsize=(30, 80))
-        nrows, ncols = 4, 3
-        gs = gridspec.GridSpec(nrows, ncols, height_ratios=[1, 4, 1, 1])
+        fig = plt.figure(figsize=(12, 16))
+        nrows, ncols = 3, 3
+        gs = gridspec.GridSpec(nrows, ncols, height_ratios=[1, 4, 1])
 
         ax = []
         for r in range(nrows):
@@ -322,10 +322,6 @@ if __name__ == "__main__":
         ax[6].imshow(flow_std[0, 0].cpu().detach().numpy())
         ax[7].imshow(flow_std[0, 1].cpu().detach().numpy())
         ax[8].imshow(pres_std[0, 0].cpu().detach().numpy())
-
-        ax[9 ].imshow(f_pred[0, 0].cpu().detach().numpy())
-        ax[10].imshow(f_std[0, 0].cpu().detach().numpy())
-        ax[11].imshow(f_std[0, 0].cpu().detach().numpy())
 
         plt.show()
 

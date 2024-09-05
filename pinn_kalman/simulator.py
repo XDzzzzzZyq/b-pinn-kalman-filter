@@ -32,7 +32,7 @@ def simulate(model:PINN, begin, t_range=(0, 100), stride=1):
 def sign(x):
     return -1.0 if x < 0.0 else 1.0
 
-dt = 0.0005
+dt = 0.0005 * 5
 dx = 1/200
 
 def step(model:PINN, begin, t_range=(0, 100), stride=1):
@@ -91,7 +91,7 @@ if __name__ == '__main__':
         axe[1, i].imshow(data[803 + i * 10, 3, 8:200, 4:-4])
         axe[2, i].imshow(result[i].squeeze().cpu())
         axe[3, i].imshow(data[803 + i * 10, 2, 8:200, 4:-4])
-        print(result[i].squeeze().cpu())
+        print((result[i].squeeze().cpu() - data[803 + i * 10, 2, 8:200, 4:-4].data).square().mean())
 
     plt.show()
 

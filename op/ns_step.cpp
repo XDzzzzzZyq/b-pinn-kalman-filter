@@ -13,7 +13,8 @@ void update_density_op(
     const torch::Tensor& dens_dy,
     const torch::Tensor& vel_c,
     float dt,
-    float dx
+    float dx,
+    int method
 );
 void update_velocity_op(
     torch::Tensor& vel_n,
@@ -41,7 +42,7 @@ torch::Tensor update_density(const torch::Tensor& dens_c, const torch::Tensor& v
     update_gradient_op(df_dx, df_dy, dens_c, dx);
 
     torch::Tensor dens_n = torch::empty_like(dens_c);
-    update_density_op(dens_n, dens_c, df_dx, df_dy, vel_c, dt, dx);
+    update_density_op(dens_n, dens_c, df_dx, df_dy, vel_c, dt, dx, 0);
 
     return dens_n;
 }

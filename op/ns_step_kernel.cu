@@ -20,6 +20,10 @@ template <typename scalar_t>
 struct vector{
     scalar_t x;
     scalar_t y;
+
+    __device__ vector<scalar_t> operator-(const vector<scalar_t>& b){
+        return vector<scalar_t>{x - b.x, y - b.y};
+    }
 };
 
 template <typename scalar_t>
@@ -173,6 +177,38 @@ static __global__ void advect_kernel(
     dens_n[loc] = get(dens_c, x, y) - dt * advect;
 }
 
+template <typename scalar_t>
+static __global__ void pressure_update_kernel(
+    scalar_t* pres_n,
+    const scalar_t* pres_c,
+    const scalar_t* vel_c,
+    float dt, float dx
+){
+
+    int batch = blockIdx.z * gridDim.x * gridDim.y;
+    int x = blockIdx.x;
+    int y = blockIdx.y;
+
+    int x_u = clamp_x(x+1);
+    int x_d = clamp_x(x-1);
+    int y_u = clamp_y(y+1);
+    int y_d = clamp_y(y-1);
+
+    vector<scalar_t> sub_x = get_v(vel_c, x_u, y) - get_v(vel_c, x_d, y);
+    vector<scalar_t> sub_y = get_v(vel_c, x, y_u) - get_v(vel_c, x, y_d);
+
+    scalar_t aver_p = 0.25 * (get(pres_c, x_d, y)+get(pres_c, x_u, y)+get(pres_c, x, y_d)+get(pres_c, x, y_u));
+
+    scalar_t pred_p = ( \
+        aver_p \
+        + (sub_x.x*sub_x.x + sub_y.y*sub_y.y + (sub_y.x * sub_x.y)) / 8.0 \
+        - dx * (sub_x.x + sub_y.y) / (8 * dt) \
+    );
+
+    int loc = batch + y * gridDim.x + x;
+    pres_n[loc] = pred_p;
+}
+
 // C++ API
 
 void update_gradient_op(
@@ -247,4 +283,29 @@ void update_density_op(
 
 
 void update_velocity_op(torch::Tensor& vel_n, const torch::Tensor& vel_c, const torch::Tensor& pres_c, float dt, float dx){}
-void update_pressure_op(torch::Tensor& pres_n, const torch::Tensor& pres_c, const torch::Tensor& vel_c, float dt, float dx){}
+void update_pressure_op(
+    torch::Tensor& pres_n,
+    const torch::Tensor& pres_c,
+    const torch::Tensor& vel_c,
+    float dt, float dx
+){
+
+    int curDevice = -1;
+    cudaGetDevice(&curDevice);
+    cudaStream_t stream = at::cuda::getCurrentCUDAStream(curDevice);
+
+    int b = pres_c.size(0);
+    int h = pres_c.size(2);
+    int w = pres_c.size(3);
+    dim3 block_size(h, w, b);
+
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(pres_c.scalar_type(), "pressure_update_kernel", [&] {
+    pressure_update_kernel<scalar_t><<<block_size, 1, 0, stream>>>(
+            pres_n.data_ptr<scalar_t>(),
+            pres_c.data_ptr<scalar_t>(),
+            vel_c.data_ptr<scalar_t>(),
+            dt, dx
+        );
+    });
+
+}

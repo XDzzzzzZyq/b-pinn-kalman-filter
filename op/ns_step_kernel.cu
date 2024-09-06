@@ -194,10 +194,10 @@ static __global__ void velocity_update_kernel(
 
     if(threadIdx.x%2==0){
         int loc = batch0 + y * gridDim.x + x;
-        vel_n[loc] = vel.x + get(pres_dx, x, y)*dt;
+        vel_n[loc] = vel.x - get(pres_dx, x, y)*dt;
     }else{
         int loc = batch1 + y * gridDim.x + x;
-        vel_n[loc] = vel.y + get(pres_dy, x, y)*dt;
+        vel_n[loc] = vel.y - get(pres_dy, x, y)*dt;
     }
 }
 

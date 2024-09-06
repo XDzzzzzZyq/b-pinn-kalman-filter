@@ -178,6 +178,21 @@ static __global__ void advect_kernel(
 }
 
 template <typename scalar_t>
+static __global__ void velocity_update_kernel(
+    scalar_t* u_n,        // single channel
+    const scalar_t* u_c,  // single channel
+    const scalar_t* pres_dx,
+    float dt
+){
+    int batch = blockIdx.z * gridDim.x * gridDim.y;
+    int x = blockIdx.x;
+    int y = blockIdx.y;
+
+    int loc = batch + y * gridDim.x + x;
+    u_n[loc] = get(u_c, x, y) + get(pres_dx, x, y)*dt;
+}
+
+template <typename scalar_t>
 static __global__ void pressure_update_kernel(
     scalar_t* pres_n,
     const scalar_t* pres_c,
@@ -281,8 +296,48 @@ void update_density_op(
     }
 }
 
+void update_velocity_op(
+    torch::Tensor& u_n,
+    const torch::Tensor& u_c,
+    const torch::Tensor& u_dx,
+    const torch::Tensor& u_dy,
+    const torch::Tensor& vel_c,
+    const torch::Tensor& pres_dx,
+    float dt, float dx
+){
 
-void update_velocity_op(torch::Tensor& vel_n, const torch::Tensor& vel_c, const torch::Tensor& pres_c, float dt, float dx){}
+    int curDevice = -1;
+    cudaGetDevice(&curDevice);
+    cudaStream_t stream = at::cuda::getCurrentCUDAStream(curDevice);
+
+    int b = u_c.size(0);
+    int h = u_c.size(2);
+    int w = u_c.size(3);
+    dim3 block_size(h, w, b);
+
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(u_c.scalar_type(), "velocity_update_kernel", [&] {
+    velocity_update_kernel<scalar_t><<<block_size, 1, 0, stream>>>(
+            u_n.data_ptr<scalar_t>(),
+            u_c.data_ptr<scalar_t>(),
+            pres_dx.data_ptr<scalar_t>(),
+            dt
+        );
+    });
+
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(u_c.scalar_type(), "cip_advect_kernel", [&] {
+    cip_advect_kernel<scalar_t><<<block_size, 1, 0, stream>>>(
+            u_n.data_ptr<scalar_t>(),
+            u_c.data_ptr<scalar_t>(),
+            u_dx.data_ptr<scalar_t>(),
+            u_dy.data_ptr<scalar_t>(),
+            vel_c.data_ptr<scalar_t>(),
+            dt, dx
+        );
+    });
+
+
+}
+
 void update_pressure_op(
     torch::Tensor& pres_n,
     const torch::Tensor& pres_c,

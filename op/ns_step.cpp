@@ -1,4 +1,5 @@
 #include <torch/extension.h>
+#include <vector>
 
 void update_gradient_op(
     torch::Tensor& df_dx,
@@ -12,14 +13,16 @@ void update_density_op(
     const torch::Tensor& dens_dx,
     const torch::Tensor& dens_dy,
     const torch::Tensor& vel_c,
-    float dt,
-    float dx,
+    float dt, float dx,
     int method
 );
 void update_velocity_op(
-    torch::Tensor& vel_n,
+    torch::Tensor& u_n,
+    const torch::Tensor& u_c,
+    const torch::Tensor& u_dx,
+    const torch::Tensor& u_dy,
     const torch::Tensor& vel_c,
-    const torch::Tensor& pres_c,
+    const torch::Tensor& pres_dx,
     float dt, float dx
 );
 void update_pressure_op(
@@ -51,8 +54,33 @@ torch::Tensor update_velocity(const torch::Tensor& vel_c, const torch::Tensor& p
     CHECK_CUDA(vel_c);
     CHECK_CUDA(pres_c);
 
-    torch::Tensor vel_n = torch::empty_like(vel_c);
-    update_velocity_op(vel_n, vel_c, pres_c, dt, dx);
+    std::vector<torch::Tensor> vel_split = torch::unbind(vel_c, 1);
+    torch::Tensor u = torch::unsqueeze(vel_split[0], 1);
+    torch::Tensor v = torch::unsqueeze(vel_split[1], 1);
+
+    torch::Tensor dp_dx = torch::empty_like(u);
+    torch::Tensor dp_dy = torch::empty_like(u);
+    update_gradient_op(dp_dx, dp_dy, pres_c, dx);
+
+    // u update
+
+    torch::Tensor du_dx = torch::empty_like(u);
+    torch::Tensor du_dy = torch::empty_like(u);
+    update_gradient_op(du_dx, du_dy, u, dx);
+
+    torch::Tensor u_n = torch::empty_like(u);
+    update_velocity_op(u_n, u, du_dx, du_dy, vel_c, dp_dx, dt, dx);
+
+    // v update
+
+    torch::Tensor dv_dx = torch::empty_like(v);
+    torch::Tensor dv_dy = torch::empty_like(v);
+    update_gradient_op(dv_dx, dv_dy, v, dx);
+
+    torch::Tensor v_n = torch::empty_like(v);
+    update_velocity_op(v_n, v, dv_dx, dv_dy, vel_c, dp_dy, dt, dx);
+
+    torch::Tensor vel_n = torch::stack(std::vector<torch::Tensor>{u, v}, 1);
 
     return vel_n;
 }

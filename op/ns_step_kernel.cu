@@ -179,17 +179,26 @@ static __global__ void advect_kernel(
 
 template <typename scalar_t>
 static __global__ void velocity_update_kernel(
-    scalar_t* u_n,        // single channel
-    const scalar_t* u_c,  // single channel
+    scalar_t* vel_n,
+    const scalar_t* vel_c,
     const scalar_t* pres_dx,
+    const scalar_t* pres_dy,
     float dt
 ){
-    int batch = blockIdx.z * gridDim.x * gridDim.y;
+    int batch0 = blockIdx.z * gridDim.x * gridDim.y * 2;
+    int batch1 = blockIdx.z * gridDim.x * gridDim.y * 2 + gridDim.x * gridDim.y;
     int x = blockIdx.x;
     int y = blockIdx.y;
 
-    int loc = batch + y * gridDim.x + x;
-    u_n[loc] = get(u_c, x, y) + get(pres_dx, x, y)*dt;
+    vector<scalar_t> vel = get_v(vel_c, x, y);
+
+    if(threadIdx.x%2==0){
+        int loc = batch0 + y * gridDim.x + x;
+        vel_n[loc] = vel.x + get(pres_dx, x, y)*dt;
+    }else{
+        int loc = batch1 + y * gridDim.x + x;
+        vel_n[loc] = vel.y + get(pres_dy, x, y)*dt;
+    }
 }
 
 template <typename scalar_t>
@@ -296,13 +305,40 @@ void update_density_op(
     }
 }
 
+void update_velocity_non_advec_op(
+    torch::Tensor& vel_n,
+    const torch::Tensor& vel_c,
+    const torch::Tensor& pres_dx,
+    const torch::Tensor& pres_dy,
+    float dt
+){
+
+    int curDevice = -1;
+    cudaGetDevice(&curDevice);
+    cudaStream_t stream = at::cuda::getCurrentCUDAStream(curDevice);
+
+    int b = vel_c.size(0);
+    int h = vel_c.size(2);
+    int w = vel_c.size(3);
+    dim3 block_size(h, w, b);
+
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(vel_c.scalar_type(), "velocity_update_kernel", [&] {
+    velocity_update_kernel<scalar_t><<<block_size, 2, 0, stream>>>(
+            vel_n.data_ptr<scalar_t>(),
+            vel_c.data_ptr<scalar_t>(),
+            pres_dx.data_ptr<scalar_t>(),
+            pres_dy.data_ptr<scalar_t>(),
+            dt
+        );
+    });
+}
+
 void update_velocity_op(
     torch::Tensor& u_n,
     const torch::Tensor& u_c,
     const torch::Tensor& u_dx,
     const torch::Tensor& u_dy,
     const torch::Tensor& vel_c,
-    const torch::Tensor& pres_dx,
     float dt, float dx
 ){
 
@@ -315,15 +351,6 @@ void update_velocity_op(
     int w = u_c.size(3);
     dim3 block_size(h, w, b);
 
-    AT_DISPATCH_FLOATING_TYPES_AND_HALF(u_c.scalar_type(), "velocity_update_kernel", [&] {
-    velocity_update_kernel<scalar_t><<<block_size, 1, 0, stream>>>(
-            u_n.data_ptr<scalar_t>(),
-            u_c.data_ptr<scalar_t>(),
-            pres_dx.data_ptr<scalar_t>(),
-            dt
-        );
-    });
-
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(u_c.scalar_type(), "cip_advect_kernel", [&] {
     cip_advect_kernel<scalar_t><<<block_size, 1, 0, stream>>>(
             u_n.data_ptr<scalar_t>(),
@@ -334,8 +361,6 @@ void update_velocity_op(
             dt, dx
         );
     });
-
-
 }
 
 void update_pressure_op(

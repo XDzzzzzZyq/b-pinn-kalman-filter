@@ -16,13 +16,19 @@ void update_density_op(
     float dt, float dx,
     int method
 );
+void update_velocity_non_advec_op(
+    torch::Tensor& vel_n,
+    const torch::Tensor& vel_c,
+    const torch::Tensor& pres_dx,
+    const torch::Tensor& pres_dy,
+    float dt
+);
 void update_velocity_op(
     torch::Tensor& u_n,
     const torch::Tensor& u_c,
     const torch::Tensor& u_dx,
     const torch::Tensor& u_dy,
     const torch::Tensor& vel_c,
-    const torch::Tensor& pres_dx,
     float dt, float dx
 );
 void update_pressure_op(
@@ -54,14 +60,16 @@ torch::Tensor update_velocity(const torch::Tensor& vel_c, const torch::Tensor& p
     CHECK_CUDA(vel_c);
     CHECK_CUDA(pres_c);
 
-    std::vector<torch::Tensor> vel_split = torch::unbind(vel_c, 1);
-    torch::Tensor u = torch::unsqueeze(vel_split[0], 1);
-    torch::Tensor v = torch::unsqueeze(vel_split[1], 1);
-
-    torch::Tensor dp_dx = torch::empty_like(u);
-    torch::Tensor dp_dy = torch::empty_like(u);
+    torch::Tensor dp_dx = torch::empty_like(pres_c);
+    torch::Tensor dp_dy = torch::empty_like(pres_c);
     update_gradient_op(dp_dx, dp_dy, pres_c, dx);
 
+    torch::Tensor vel_n = torch::empty_like(vel_c);
+    update_velocity_non_advec_op(vel_n, vel_c, dp_dx, dp_dy, dt);
+
+    std::vector<torch::Tensor> vel_split = torch::unbind(vel_n, 1);
+    torch::Tensor u = torch::unsqueeze(vel_split[0], 1);
+    torch::Tensor v = torch::unsqueeze(vel_split[1], 1);
     // u update
 
     torch::Tensor du_dx = torch::empty_like(u);
@@ -69,7 +77,7 @@ torch::Tensor update_velocity(const torch::Tensor& vel_c, const torch::Tensor& p
     update_gradient_op(du_dx, du_dy, u, dx);
 
     torch::Tensor u_n = torch::empty_like(u);
-    update_velocity_op(u_n, u, du_dx, du_dy, vel_c, dp_dx, dt, dx);
+    update_velocity_op(u_n, u, du_dx, du_dy, vel_n, dt, dx);
 
     // v update
 
@@ -78,11 +86,9 @@ torch::Tensor update_velocity(const torch::Tensor& vel_c, const torch::Tensor& p
     update_gradient_op(dv_dx, dv_dy, v, dx);
 
     torch::Tensor v_n = torch::empty_like(v);
-    update_velocity_op(v_n, v, dv_dx, dv_dy, vel_c, dp_dy, dt, dx);
+    update_velocity_op(v_n, v, dv_dx, dv_dy, vel_n, dt, dx);
 
-    torch::Tensor vel_n = torch::stack(std::vector<torch::Tensor>{u, v}, 1);
-
-    return vel_n;
+    return torch::cat(std::vector<torch::Tensor>{u_n, v_n}, 1);
 }
 
 torch::Tensor update_pressure(const torch::Tensor& pres_c, const torch::Tensor& vel_c, float dt, float dx) {

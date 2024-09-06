@@ -42,23 +42,24 @@ def step(model:PINN, begin, t_range=(0, 100), stride=1):
 
     result = []
     vel = []
+    pres = []
 
     t0, tm = t_range
 
-    f1 = prep(begin[0+t0, 2:3])
-    f2 = prep(begin[1+t0, 2:3])
-    x  = prep(begin[0+t0, 0:1])
-    y  = prep(begin[0+t0, 1:2])
+    f = prep(begin[0+t0, 2:3])
+    v = prep(begin[0 + t0, 3:5])
+    v = torch.cat([v[:, 1:2], v[:, 0:1]], 1)
+    p = prep(begin[0 + t0, 5:6])
 
     for t in torch.arange(*t_range, stride):
-        flow = prep(begin[t, 3:5])
-        f = ns_step.update_density(f2, flow, dt, dx)
+        v = ns_step.update_velocity(v, p, dt, dx)
+        p = ns_step.update_pressure(p, v, dt, dx)
+        f = ns_step.update_density(f, v, dt, dx)
         result.append(f)
-        vel.append(flow)
+        vel.append(v)
+        pres.append(p)
 
-        f1, f2 = f2, f
-
-    return result, vel
+    return result, vel, pres
 
 
 if __name__ == '__main__':
@@ -82,16 +83,37 @@ if __name__ == '__main__':
     model = utils.load_checkpoint(workdir, model, config.device)
 
     with torch.no_grad():
-        result, vel = step(model, data, t_range=(802, 902))
-        result, vel = result[::10], vel[::10]
+        result, vel, pres = step(model, data, t_range=(802, 902))
+        result, vel, pres = result[::10], vel[::10], pres[::10]
 
-    fig, axe = plt.subplots(nrows=4, ncols=10, figsize=(100, 30))
-    for i in range(10):
-        axe[0, i].imshow(vel[i][0, 0].cpu())
-        axe[1, i].imshow(data[803 + i * 10, 3, 8:200, 4:-4])
-        axe[2, i].imshow(result[i].squeeze().cpu())
-        axe[3, i].imshow(data[803 + i * 10, 2, 8:200, 4:-4])
-        print((result[i].squeeze().cpu() - data[803 + i * 10, 2, 8:200, 4:-4].data).square().mean())
+    if True:
+        fig, axe = plt.subplots(nrows=4, ncols=10, figsize=(100, 40))
+        for i in range(10):
+            axe[0, i].imshow(result[i].squeeze().cpu())
+
+            axe[1, i].imshow(vel[i][0, 0].cpu())
+
+            axe[2, i].imshow(vel[i][0, 1].cpu())
+
+            axe[3, i].imshow(pres[i].squeeze().cpu())
+            print((result[i].squeeze().cpu() - data[803 + i * 10, 2, 8:200, 4:-4].data).square().mean())
+
+    else:
+        fig, axe = plt.subplots(nrows=8, ncols=10, figsize=(100, 60))
+        for i in range(10):
+            axe[0, i].imshow(result[i].squeeze().cpu())
+            axe[1, i].imshow(data[803 + i * 10, 2, 8:200, 4:-4])
+
+            axe[2, i].imshow(vel[i][0, 0].cpu())
+            axe[3, i].imshow(data[803 + i * 10, 3, 8:200, 4:-4])
+
+            axe[4, i].imshow(vel[i][0, 1].cpu())
+            axe[5, i].imshow(data[803 + i * 10, 4, 8:200, 4:-4])
+
+            axe[6, i].imshow(pres[i].squeeze().cpu())
+            axe[7, i].imshow(data[803 + i * 10, 5, 8:200, 4:-4])
+            print((result[i].squeeze().cpu() - data[803 + i * 10, 2, 8:200, 4:-4].data).square().mean())
+
 
     plt.show()
 

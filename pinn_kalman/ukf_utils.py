@@ -48,13 +48,25 @@ class NSDynamics(DynamicsModel):
     def forward(self, initial_states, controls):
         from op import ns_step
         # initial_states must be patched
+        # unpatch
 
-        # depatch
-
+        unpatched = self.unpatch(initial_states)
+        f = unpatched[:, 0:1]
+        v = unpatched[:, 1:3]
+        p = unpatched[:, 3:4]
 
         # dynamics
 
+        dt = 0.0005 * 5
+        dx = 1 / 200
+
+        v = ns_step.update_velocity(v, p, dt, dx)
+        p = ns_step.update_pressure(p, v, dt, dx)
+        f = ns_step.update_density(f, v, dt, dx)
+
         #patch
+
+        return patch(torch.cat([f, v, p], dim=1), self.dim)
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt

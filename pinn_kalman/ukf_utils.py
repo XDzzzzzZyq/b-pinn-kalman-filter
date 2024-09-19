@@ -2,6 +2,7 @@ from torchfilter.base import DynamicsModel, KalmanFilterMeasurementModel
 from inverse import operators
 
 import torch
+from torchvision.utils import make_grid
 
 def patch(x, p_size):
 
@@ -12,9 +13,12 @@ def patch(x, p_size):
 
     return x
 
-def depatch(x, f_size):
-    pass
-
+def unpatch(x, p_size, f_size, channel_num=6):
+    num = f_size//p_size
+    x = x.reshape(-1, num**2, p_size, p_size).transpose(0, 1)
+    x = make_grid(x, num, padding=0).reshape(channel_num, -1, f_size, f_size)
+    x = x.transpose(0, 1)
+    return x
 
 class InpaintKFMeasure(KalmanFilterMeasurementModel):
     def __init__(self, config):
@@ -38,18 +42,15 @@ class NSDynamics(DynamicsModel):
         assert self.size%self.dim==0
         super(NSDynamics, self).__init__(state_dim=self.dim**2)
 
+    def unpatch(self, x):
+        return unpatch(x, self.dim, self.size)
+
     def forward(self, initial_states, controls):
         from op import ns_step
         # initial_states must be patched
 
         # depatch
-        B = initial_states.shape[0]
-        assert B%4 == 0
-        batch_size = B//4
-        f_batch = depatch(initial_states[:batch_size], self.size)
-        u_batch = depatch(initial_states[1*batch_size:2*batch_size], self.size)
-        v_batch = depatch(initial_states[2*batch_size:3*batch_size], self.size)
-        p_batch = depatch(initial_states[3*batch_size:], self.size)
+
 
         # dynamics
 
@@ -57,7 +58,6 @@ class NSDynamics(DynamicsModel):
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
-    from torchvision.utils import make_grid
 
     from netCDF4 import Dataset
 
@@ -80,5 +80,10 @@ if __name__ == '__main__':
     image_grid = make_grid(f_p[:9].unsqueeze(1), 3, padding=5)
     print(image_grid.shape)
     plt.imshow(image_grid[0])
+
+    rec = unpatch(p, 64, 192)
+    print(rec.shape)
+    plt.imshow(rec[0, 3])
+
     plt.show()
 

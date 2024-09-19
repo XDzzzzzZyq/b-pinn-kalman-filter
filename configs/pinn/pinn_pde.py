@@ -17,4 +17,8 @@ def get_config():
   inverse.ratio = 0.9
   inverse.variance = 0.0001
 
+  # ukf
+  kf = config.kf = ml_collections.ConfigDict()
+  kf.patch_size = 32
+
   return config

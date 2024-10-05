@@ -46,15 +46,16 @@ def step(model:PINN, begin, t_range=(0, 100), stride=1):
 
     t0, tm = t_range
 
-    f = prep(begin[0+t0, 2:3])
+    f = prep(begin[0+t0, 2:3]).repeat(256,1,1,1)
     v = prep(begin[0 + t0, 3:5])
-    v = torch.cat([v[:, 1:2], v[:, 0:1]], 1)
-    p = prep(begin[0 + t0, 5:6])
+    v = torch.cat([v[:, 1:2], v[:, 0:1]], 1).repeat(256,1,1,1)
+    p = prep(begin[0 + t0, 5:6]).repeat(256,1,1,1)
 
     for t in torch.arange(*t_range, stride):
         v = ns_step.update_velocity(v, p, dt, dx)
         p = ns_step.update_pressure(p, v, dt, dx)
         f = ns_step.update_density(f, v, dt, dx)
+        print(f)
         result.append(f)
         vel.append(v)
         pres.append(p)
@@ -89,13 +90,13 @@ if __name__ == '__main__':
     if True:
         fig, axe = plt.subplots(nrows=4, ncols=10, figsize=(100, 40))
         for i in range(10):
-            axe[0, i].imshow(result[i].squeeze().cpu())
+            axe[0, i].imshow(result[i][0, 0].cpu())
 
             axe[1, i].imshow(vel[i][0, 0].cpu())
 
             axe[2, i].imshow(vel[i][0, 1].cpu())
 
-            axe[3, i].imshow(pres[i].squeeze().cpu())
+            axe[3, i].imshow(pres[i][0, 0].cpu())
             print((result[i].squeeze().cpu() - data[803 + i * 10, 2, 8:200, 4:-4].data).square().mean())
 
     else:
@@ -114,6 +115,6 @@ if __name__ == '__main__':
             axe[7, i].imshow(data[803 + i * 10, 5, 8:200, 4:-4])
             print((result[i].squeeze().cpu() - data[803 + i * 10, 2, 8:200, 4:-4].data).square().mean())
 
-
+    plt.savefig("output.jpg")
     plt.show()
 

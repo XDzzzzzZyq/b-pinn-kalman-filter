@@ -31,7 +31,7 @@ static __device__ scalar_t get(
     const scalar_t* field,
     int x, int y
 ){
-    int batch = blockIdx.z * gridDim.x * gridDim.y;
+    int batch = threadIdx.x * gridDim.x * gridDim.y;
     return field[batch + y * gridDim.x + x];
 }
 
@@ -40,8 +40,8 @@ static __device__ vector<scalar_t> get_v(
     const scalar_t* field,
     int x, int y
 ){
-    int batch0 = blockIdx.z * gridDim.x * gridDim.y * 2;
-    int batch1 = blockIdx.z * gridDim.x * gridDim.y * 2 + gridDim.x * gridDim.y;
+    int batch0 = threadIdx.x * gridDim.x * gridDim.y * 2;
+    int batch1 = threadIdx.x * gridDim.x * gridDim.y * 2 + gridDim.x * gridDim.y;
     vector<scalar_t> vec{field[batch0 + y * gridDim.x + x], field[batch1 + y * gridDim.x + x]};
     return vec;
 }
@@ -75,11 +75,11 @@ static __device__ scalar_t diff_y(
 }
 
 static __device__ int clamp_x(int x){
-    return x < 0 ? 0 : (x > gridDim.x-1 ? gridDim.x-1 : x);
+    return x < 0 ? -x : (x > gridDim.x-1 ? 2*gridDim.x-2-x : x);
 }
 
 static __device__ int clamp_y(int y){
-    return y < 0 ? 0 : (y > gridDim.y-1 ? gridDim.y-1 : y);
+    return y < 0 ? -y : (y > gridDim.y-1 ? 2*gridDim.y-2-y : y);
 }
 
 template <typename scalar_t>
@@ -100,12 +100,12 @@ static __global__ void update_gradient_kernel(
     const scalar_t* field,
     float dx
 ) {
-    int batch = blockIdx.z * gridDim.x * gridDim.y;
+    int batch = threadIdx.x * gridDim.x * gridDim.y;
     int x = blockIdx.x;
     int y = blockIdx.y;
     int loc = batch + y * gridDim.x + x;
 
-    if(threadIdx.x%2==0)
+    if(blockIdx.z%2==0)
         df_dx[loc] = diff_x(field, x, y, dx);
     else
         df_dy[loc] = diff_y(field, x, y, dx);
@@ -121,7 +121,7 @@ static __global__ void cip_advect_kernel(
     float dt, float dx
 ) {
 
-    int batch = blockIdx.z * gridDim.x * gridDim.y;
+    int batch = threadIdx.x * gridDim.x * gridDim.y;
     int x = blockIdx.x;
     int y = blockIdx.y;
 
@@ -167,7 +167,7 @@ static __global__ void advect_kernel(
     float dt, float dx
 ) {
 
-    int batch = blockIdx.z * gridDim.x * gridDim.y;
+    int batch = threadIdx.x * gridDim.x * gridDim.y;
     int x = blockIdx.x;
     int y = blockIdx.y;
 
@@ -185,14 +185,14 @@ static __global__ void velocity_update_kernel(
     const scalar_t* pres_dy,
     float dt
 ){
-    int batch0 = blockIdx.z * gridDim.x * gridDim.y * 2;
-    int batch1 = blockIdx.z * gridDim.x * gridDim.y * 2 + gridDim.x * gridDim.y;
+    int batch0 = threadIdx.x * gridDim.x * gridDim.y * 2;
+    int batch1 = threadIdx.x * gridDim.x * gridDim.y * 2 + gridDim.x * gridDim.y;
     int x = blockIdx.x;
     int y = blockIdx.y;
 
     vector<scalar_t> vel = get_v(vel_c, x, y);
 
-    if(threadIdx.x%2==0){
+    if(blockIdx.z%2==0){
         int loc = batch0 + y * gridDim.x + x;
         vel_n[loc] = vel.x - get(pres_dx, x, y)*dt;
     }else{
@@ -209,7 +209,7 @@ static __global__ void pressure_update_kernel(
     float dt, float dx
 ){
 
-    int batch = blockIdx.z * gridDim.x * gridDim.y;
+    int batch = threadIdx.x * gridDim.x * gridDim.y;
     int x = blockIdx.x;
     int y = blockIdx.y;
 
@@ -248,10 +248,10 @@ void update_gradient_op(
     int b = df_dx.size(0);
     int h = df_dx.size(2);
     int w = df_dx.size(3);
-    dim3 block_size(h, w, b);
+    dim3 block_size(h, w, 2);
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(df_dx.scalar_type(), "update_gradient_kernel", [&] {
-        update_gradient_kernel<scalar_t><<<block_size, 2, 0, stream>>>(
+        update_gradient_kernel<scalar_t><<<block_size, b, 0, stream>>>(
             df_dx.data_ptr<scalar_t>(),
             df_dy.data_ptr<scalar_t>(),
             field.data_ptr<scalar_t>(),
@@ -275,12 +275,12 @@ void update_density_op(
     int b = dens_c.size(0);
     int h = dens_c.size(2);
     int w = dens_c.size(3);
-    dim3 block_size(h, w, b);
+    dim3 block_size(h, w, 1);
 
     switch(method){
     case 0:
         AT_DISPATCH_FLOATING_TYPES_AND_HALF(dens_c.scalar_type(), "cip_advect_kernel", [&] {
-        cip_advect_kernel<scalar_t><<<block_size, 1, 0, stream>>>(
+        cip_advect_kernel<scalar_t><<<block_size, b, 0, stream>>>(
                 dens_n.data_ptr<scalar_t>(),
                 dens_c.data_ptr<scalar_t>(),
                 dens_dx.data_ptr<scalar_t>(),
@@ -292,7 +292,7 @@ void update_density_op(
         break;
     case 1:
         AT_DISPATCH_FLOATING_TYPES_AND_HALF(dens_c.scalar_type(), "advect_kernel", [&] {
-        advect_kernel<scalar_t><<<block_size, 1, 0, stream>>>(
+        advect_kernel<scalar_t><<<block_size, b, 0, stream>>>(
                 dens_n.data_ptr<scalar_t>(),
                 dens_c.data_ptr<scalar_t>(),
                 dens_dx.data_ptr<scalar_t>(),
@@ -320,10 +320,10 @@ void update_velocity_non_advec_op(
     int b = vel_c.size(0);
     int h = vel_c.size(2);
     int w = vel_c.size(3);
-    dim3 block_size(h, w, b);
+    dim3 block_size(h, w, 2);
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(vel_c.scalar_type(), "velocity_update_kernel", [&] {
-    velocity_update_kernel<scalar_t><<<block_size, 2, 0, stream>>>(
+    velocity_update_kernel<scalar_t><<<block_size, b, 0, stream>>>(
             vel_n.data_ptr<scalar_t>(),
             vel_c.data_ptr<scalar_t>(),
             pres_dx.data_ptr<scalar_t>(),
@@ -349,10 +349,10 @@ void update_velocity_op(
     int b = u_c.size(0);
     int h = u_c.size(2);
     int w = u_c.size(3);
-    dim3 block_size(h, w, b);
+    dim3 block_size(h, w, 1);
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(u_c.scalar_type(), "cip_advect_kernel", [&] {
-    cip_advect_kernel<scalar_t><<<block_size, 1, 0, stream>>>(
+    cip_advect_kernel<scalar_t><<<block_size, b, 0, stream>>>(
             u_n.data_ptr<scalar_t>(),
             u_c.data_ptr<scalar_t>(),
             u_dx.data_ptr<scalar_t>(),
@@ -377,10 +377,10 @@ void update_pressure_op(
     int b = pres_c.size(0);
     int h = pres_c.size(2);
     int w = pres_c.size(3);
-    dim3 block_size(h, w, b);
+    dim3 block_size(h, w, 1);
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(pres_c.scalar_type(), "pressure_update_kernel", [&] {
-    pressure_update_kernel<scalar_t><<<block_size, 1, 0, stream>>>(
+    pressure_update_kernel<scalar_t><<<block_size, b, 0, stream>>>(
             pres_n.data_ptr<scalar_t>(),
             pres_c.data_ptr<scalar_t>(),
             vel_c.data_ptr<scalar_t>(),

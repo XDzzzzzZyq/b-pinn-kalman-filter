@@ -19,6 +19,6 @@ def get_config():
 
   # ukf
   kf = config.kf = ml_collections.ConfigDict()
-  kf.patch_size = 32
+  kf.patch_size = 8
 
   return config

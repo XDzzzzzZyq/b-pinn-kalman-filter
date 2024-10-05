@@ -20,6 +20,19 @@ def unpatch(x, p_size, f_size, channel_num=6):
     x = x.transpose(0, 1)
     return x
 
+class IdentityKFMeasure(KalmanFilterMeasurementModel):
+    def __init__(self, config):
+        self.dim = config.kf.patch_size
+        super(IdentityKFMeasure, self).__init__(state_dim=self.dim**2, observation_dim=self.dim**2)
+        self.var = config.inverse.variance
+
+    def forward(self, states):
+        states = states + torch.randn_like(states) * (self.var ** 0.5)
+        covar = torch.eye(self.dim**2) * self.var
+        covar = covar.unsqueeze(0).repeat(states.shape[0], 1, 1).to(states.device)
+
+        return states, covar
+
 class InpaintKFMeasure(KalmanFilterMeasurementModel):
     def __init__(self, config):
         self.dim = config.kf.patch_size
@@ -30,7 +43,8 @@ class InpaintKFMeasure(KalmanFilterMeasurementModel):
 
     def forward(self, states):
         states = self.operator(states) + torch.randn_like(states) * (self.var ** 0.5)
-        covar = torch.eye(self.dim**4) * self.var
+        covar = torch.eye(self.dim**2) * self.var
+        covar = covar.unsqueeze(0).repeat(states.shape[0], 1, 1).to(states.device)
 
         return states, covar
 
@@ -43,13 +57,12 @@ class NSDynamics(DynamicsModel):
         super(NSDynamics, self).__init__(state_dim=self.dim**2)
 
     def unpatch(self, x):
-        return unpatch(x, self.dim, self.size)
+        return unpatch(x, self.dim, self.size, 4)
 
     def forward(self, initial_states, controls):
         from op import ns_step
         # initial_states must be patched
         # unpatch
-
         unpatched = self.unpatch(initial_states)
         f = unpatched[:, 0:1]
         v = unpatched[:, 1:3]
@@ -59,14 +72,21 @@ class NSDynamics(DynamicsModel):
 
         dt = 0.0005 * 5
         dx = 1 / 200
-
         v = ns_step.update_velocity(v, p, dt, dx)
         p = ns_step.update_pressure(p, v, dt, dx)
         f = ns_step.update_density(f, v, dt, dx)
 
-        #patch
+        # TODO: using patched covariance
+        # TODO: consider batches
+        f_std = f.std(dim=0)
+        v_std = v.std(dim=0)
+        p_std = p.std(dim=0)
 
-        return patch(torch.cat([f, v, p], dim=1), self.dim)
+        #patch
+        state = patch(torch.cat([f, v, p], dim=1), self.dim)
+        uncer = patch(torch.cat([f_std, v_std, p_std], dim=0), self.dim)
+        uncer = torch.diag_embed(uncer).repeat(2*self.dim**2+1,1,1)
+        return state, uncer
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt

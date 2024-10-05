@@ -148,11 +148,11 @@ class B_PINN(PINN):
         self.pressurenet = self.pressurenet.to(config.device)
         self.batch = config.training.batch_size
 
-    def sample_uvp(self, f1, f2, x, y, t, n=64):
+    def sample_uvp(self, f1, f2, x, y, t, n=64, size=None):
         flow_pred = []
         pres_pred = []
         for mc_run in range(n):
-            flow, pressure = self.forward(f1, f2, x, y, t)
+            flow, pressure = self.forward(f1, f2, x, y, t, size)
             flow_pred.append(flow[-1])
             pres_pred.append(pressure)
 

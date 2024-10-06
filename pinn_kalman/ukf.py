@@ -16,9 +16,9 @@ class UKF(nn.Module):
         self.dynamic = NSDynamics(config)
         self.measurement = IdentityKFMeasure(config)
         self.ukf = UnscentedKalmanFilter(dynamics_model=self.dynamic, measurement_model=self.measurement)
-
+        # TODO: better initialization
         N = (self.size//self.dim)**2 * 4
-        mean = torch.zeros(N, config.kf.patch_size**2).to(config.device)
+        mean = torch.ones(N, config.kf.patch_size**2).to(config.device) * 0.1
         covariance = torch.eye(config.kf.patch_size**2).unsqueeze(0).repeat(N,1,1).to(config.device)
         self.ukf.initialize_beliefs(mean=mean, covariance=covariance)
 

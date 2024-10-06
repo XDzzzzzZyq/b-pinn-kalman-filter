@@ -86,6 +86,8 @@ class NSDynamics(DynamicsModel):
         state = patch(torch.cat([f, v, p], dim=1), self.dim)
         uncer = patch(torch.cat([f_std, v_std, p_std], dim=0), self.dim)
         uncer = torch.diag_embed(uncer).repeat(2*self.dim**2+1,1,1)
+        #uncer = torch.zeros_like(uncer)
+
         return state, uncer
 
 if __name__ == '__main__':

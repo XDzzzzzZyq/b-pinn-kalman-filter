@@ -1,4 +1,5 @@
 from torchfilter.base import DynamicsModel, KalmanFilterMeasurementModel
+from torchfilter.utils import SigmaPointStrategy
 from inverse import operators
 
 import torch
@@ -6,7 +7,7 @@ from torchvision.utils import make_grid
 
 def patch(x, p_size):
 
-    # B, (1+2+1), H, W -> (1+2+1), B, H, W -> (1+2+1), S*B, 1
+    # B, (1+2+1), H, W -> (1+2+1), B, H, W -> (1+2+1)*B*N, P*P
     x = x.transpose(0, 1)
     x = x.unfold(2, p_size, p_size).unfold(3, p_size, p_size)
     x = x.reshape(-1, p_size**2)
@@ -23,15 +24,47 @@ def unpatch(x, p_size, f_size, channel_num=6):
 class IdentityKFMeasure(KalmanFilterMeasurementModel):
     def __init__(self, config):
         self.dim = config.kf.patch_size
+        self.size = config.data.image_size
         super(IdentityKFMeasure, self).__init__(state_dim=self.dim**2, observation_dim=self.dim**2)
         self.var = config.inverse.variance
+        self.uncer_flow = config.inverse.variance
+        self.uncer_pres = config.inverse.variance
 
-    def forward(self, states):
-        states = states + torch.randn_like(states) * (self.var ** 0.5)
-        covar = torch.eye(self.dim**2) * self.var
-        covar = covar.unsqueeze(0).repeat(states.shape[0], 1, 1).to(states.device)
+    def update_uncertainty(self, uncer_flow, uncer_pres):
+        assert uncer_flow.ndim == uncer_pres.ndim == 4
+        assert uncer_flow.shape[1] == 2
+        self.uncer_flow = patch(uncer_flow, self.dim)
+        assert uncer_pres.shape[1] == 1
+        self.uncer_pres = patch(uncer_pres, self.dim)
 
-        return states, covar
+    def forward(self, states, f_only=False):
+
+        if f_only:
+            states = states + torch.randn_like(states) * (self.var ** 0.5)
+            covar = torch.eye(self.dim ** 2) * self.var
+            covar = covar.unsqueeze(0).repeat(states.shape[0], 1, 1).to(states.device)
+
+            print("id_covar", torch.isnan(covar).any(), torch.isinf(covar).any())
+            print("id_states", torch.isnan(states).any()), torch.isinf(states).any()
+            return states, covar
+
+        else:
+            assert states.shape[0] % 4 == 0
+            N = states.shape[0] // 4 // (self.size//self.dim)**2
+            f_noise = torch.randn(states.shape[0]//4, states.shape[1]).to(states.device) * self.var**0.5
+            u_noise = torch.randn_like(self.uncer_flow) * self.uncer_flow
+            p_noise = torch.randn_like(self.uncer_pres) * self.uncer_pres
+            noise = torch.cat([f_noise, u_noise.repeat(N,1), p_noise.repeat(N,1)], dim=0)
+            assert noise.shape == states.shape
+            states = states + noise
+
+            f_noise = torch.eye(self.dim ** 2) * self.var
+            f_noise = f_noise.unsqueeze(0).repeat(states.shape[0]//4, 1, 1).to(states.device)
+            u_noise = torch.diag_embed(self.uncer_flow.repeat(N,1)) ** 2
+            p_noise = torch.diag_embed(self.uncer_pres.repeat(N,1)) ** 2
+            covar = torch.cat([f_noise, u_noise, p_noise], dim=0)
+            return states, covar
+
 
 class InpaintKFMeasure(KalmanFilterMeasurementModel):
     def __init__(self, config):
@@ -63,11 +96,12 @@ class NSDynamics(DynamicsModel):
         from op import ns_step
         # initial_states must be patched
         # unpatch
+        print("initial_states", torch.isnan(initial_states).any(), torch.isinf(initial_states).any())
         unpatched = self.unpatch(initial_states)
         f = unpatched[:, 0:1]
         v = unpatched[:, 1:3]
         p = unpatched[:, 3:4]
-
+        print("f1", torch.isnan(f).any(), torch.isinf(f).any())
         # dynamics
 
         dt = 0.0005 * 5
@@ -75,19 +109,13 @@ class NSDynamics(DynamicsModel):
         v = ns_step.update_velocity(v, p, dt, dx)
         p = ns_step.update_pressure(p, v, dt, dx)
         f = ns_step.update_density(f, v, dt, dx)
-
-        # TODO: using patched covariance
-        # TODO: consider batches
-        f_std = f.std(dim=0)
-        v_std = v.std(dim=0)
-        p_std = p.std(dim=0)
+        print("f2", torch.isnan(f).any(), torch.isinf(f).any())
 
         #patch
         state = patch(torch.cat([f, v, p], dim=1), self.dim)
-        uncer = patch(torch.cat([f_std, v_std, p_std], dim=0), self.dim)
-        uncer = torch.diag_embed(uncer).repeat(2*self.dim**2+1,1,1)
-        #uncer = torch.zeros_like(uncer)
-
+        uncer = torch.eye(self.dim**2, device=state.device).unsqueeze(0).repeat(state.shape[0],1,1) * 1e-8
+        print("uncer", torch.isnan(uncer).any(), torch.isinf(uncer).any())
+        print("state", torch.isnan(state).any(), torch.isinf(state).any())
         return state, uncer
 
 if __name__ == '__main__':

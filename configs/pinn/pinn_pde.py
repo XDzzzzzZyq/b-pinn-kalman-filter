@@ -15,7 +15,7 @@ def get_config():
   inverse.operator = 'inpaint_rnd'
   inverse.invert = False
   inverse.ratio = 0.9
-  inverse.variance = 0.0001
+  inverse.variance = 0.01
 
   # ukf
   kf = config.kf = ml_collections.ConfigDict()

@@ -86,12 +86,12 @@ class CustomDataset(Dataset):
 
 
 class PDEDataset(Dataset):
-    def __init__(self, data, split='train', transform=None):
+    def __init__(self, data, split='train', transform=None, trim=160):
         self.len = len(data)
         self.data = data
         self.split = split
         self.transform = transform
-        self.offset = 160
+        self.offset = trim
 
     def __len__(self):
         len = int(self.len * 0.9)-self.offset if self.split == 'train' else int(self.len * 0.1)
@@ -112,7 +112,8 @@ class PDEDataset(Dataset):
         x_t = sample[1]
         x_p = sample[0]
 
-        return x_p[2:3], x_t[2:3], x_t[0:2], t, x_t[3:]
+        return x_p[2:3], x_t[2:3], x_t[0:1], x_t[1:2], t, x_t[3:]
+             #    f1,       f2,       x,        y,     t,    target
 
 
 
@@ -241,6 +242,7 @@ def get_dataset(config, uniform_dequantization=False, evaluation=False):
 
         data = Dataset(
             f'/data1/DATA_PUBLIC/Southern_Ocean/bsose_i122_{config.data.date_range}_{config.data.category}.nc')
+        print(data.description)
         data = data[config.data.key]
 
         transform = transforms.Compose([
@@ -254,21 +256,22 @@ def get_dataset(config, uniform_dequantization=False, evaluation=False):
 
         from netCDF4 import Dataset
 
-        data = Dataset('/data1/20000-25-400-200.nc')
+        data = Dataset('/data1/DATA_PUBLIC/40000-25-400-200.nc')
+        print(data.description)
         data = data['data']
 
         transform = transforms.Compose([
             transforms.RandomCrop(config.data.image_size, pad_if_needed=True, padding_mode='constant')])
 
-        train_dataset = PDEDataset(data, split='train', transform=transform)
-        test_dataset = PDEDataset(data, split='test', transform=transform)
+        train_dataset = PDEDataset(data, split='train', transform=transform, trim=config.data.time_trim)
+        test_dataset = PDEDataset(data, split='test', transform=transform, trim=config.data.time_trim)
 
     else:
         raise NotImplementedError(
             f'Dataset {config.data.dataset} not yet supported.')
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4, drop_last=True)
 
     return train_loader, test_loader
 
@@ -290,7 +293,7 @@ def get_mask_dataset(config):
                                         Binarize(config.inverse.ratio, not config.inverse.invert),
                                         Repeat(config.training.batch_size)])
 
-        rnd_mask = torch.rand(16, 2, config.data.image_size, config.data.image_size)
+        rnd_mask = torch.rand(1600, 2, config.data.image_size, config.data.image_size)
         mask_dataset = CustomDataset(rnd_mask, split='train', transform=transform, remove_mask=False)
 
     mask_loader = DataLoader(mask_dataset, batch_size=1, shuffle=True, num_workers=4)

@@ -101,7 +101,7 @@ class NSDynamics(DynamicsModel):
         f = unpatched[:, 0:1]
         v = unpatched[:, 1:3]
         p = unpatched[:, 3:4]
-        print("f1", torch.isnan(f).any(), torch.isinf(f).any())
+        print("f1", torch.isnan(f).any(), torch.isnan(v).any(), torch.isnan(p).any())
         # dynamics
 
         dt = 0.0005 * 5
@@ -109,11 +109,20 @@ class NSDynamics(DynamicsModel):
         v = ns_step.update_velocity(v, p, dt, dx)
         p = ns_step.update_pressure(p, v, dt, dx)
         f = ns_step.update_density(f, v, dt, dx)
-        print("f2", torch.isnan(f).any(), torch.isinf(f).any())
+        f = torch.nan_to_num(f, nan=0.0)
+        print("f2", torch.isnan(f).any(), torch.isnan(v).any(), torch.isnan(p).any())
 
         #patch
         state = patch(torch.cat([f, v, p], dim=1), self.dim)
         uncer = torch.eye(self.dim**2, device=state.device).unsqueeze(0).repeat(state.shape[0],1,1) * 1e-8
+
+
+        if torch.isnan(state).any() and False:
+            nan_indices = torch.nonzero(torch.isnan(state), as_tuple=False)
+            for i, j in nan_indices:
+                uncer[i, j, j] = 1.0
+            state = torch.nan_to_num(state, nan=0.0)
+
         print("uncer", torch.isnan(uncer).any(), torch.isinf(uncer).any())
         print("state", torch.isnan(state).any(), torch.isinf(state).any())
         return state, uncer

@@ -1,7 +1,8 @@
 import numpy as np
 import torch
 from torch import nn
-from torchfilter.filters import UnscentedKalmanFilter, SquareRootUnscentedKalmanFilter
+from torchfilter.filters import UnscentedKalmanFilter, SquareRootUnscentedKalmanFilter, ParticleFilter
+from torchfilter.base import ParticleFilterMeasurementModelWrapper
 from torchfilter.utils import MerweSigmaPointStrategy
 from pinn_kalman.ukf_utils import NSDynamics, InpaintKFMeasure, IdentityKFMeasure, patch, unpatch
 from pinn import B_PINN
@@ -18,9 +19,20 @@ class UKF(nn.Module):
         self.dynamic = NSDynamics(config)
         self.measurement = IdentityKFMeasure(config)
         self.strategy = MerweSigmaPointStrategy(alpha=1.0, beta=0.0, kappa=0.0)
-        self.ukf = SquareRootUnscentedKalmanFilter(dynamics_model=self.dynamic,
-                                                   measurement_model=self.measurement,
-                                                   sigma_point_strategy=self.strategy)
+
+        if config.kf.type == 'pf':
+            self.measurement = ParticleFilterMeasurementModelWrapper(self.measurement)
+            self.ukf = ParticleFilter(dynamics_model=self.dynamic,
+                                      measurement_model=self.measurement,
+                                      num_particles=100)
+        elif config.kf.type == 'ukf':
+            self.ukf = UnscentedKalmanFilter(dynamics_model=self.dynamic,
+                                             measurement_model=self.measurement,
+                                             sigma_point_strategy=self.strategy)
+        elif config.kf.type == 'sqrtukf':
+            self.ukf = SquareRootUnscentedKalmanFilter(dynamics_model=self.dynamic,
+                                                       measurement_model=self.measurement,
+                                                       sigma_point_strategy=self.strategy)
 
     def initialize(self, x0=None, var=0.01):
         # TODO: better initialization
@@ -41,6 +53,7 @@ class UKF(nn.Module):
         pred = self.ukf(observations=obsv, controls=torch.zeros(obsv.shape[0], device=obsv.device))
         pred = unpatch(pred, self.dim, self.size, 4)
         print("pred", torch.isnan(pred).any())
+        print("cov", torch.isnan(self.ukf.belief_covariance).any())
         return pred
 
 class PINN_KF(nn.Module):
@@ -79,7 +92,7 @@ class PINN_KF(nn.Module):
         self.ukf.measurement.update_uncertainty(flow_uncer, pres_uncer)
 
         obsv = torch.cat([f, flow, pres], dim=1)
-        return self.ukf(obsv)
+        return self.ukf(obsv), flow, pres
 
 
 if __name__ == '__main__':
@@ -108,6 +121,8 @@ if __name__ == '__main__':
     pikal.initialize(f, v, p)
 
     pred_list = []
+    flow_list = []
+    pres_list = []
     gt_list = []
     obsv_list = []
     t = torch.Tensor([802])
@@ -120,18 +135,22 @@ if __name__ == '__main__':
 
             f, _ = pikal.ukf.measurement(f, True)
 
-            pred = pikal(x, y, t, f)
+            pred, flow, pres = pikal(x, y, t, f)
             pred_list.append(pred)
+            flow_list.append(flow)
+            pres_list.append(pres)
             obsv_list.append(f)
 
             print(t)
             t += 1
 
-    fig, axe = plt.subplots(nrows=3, ncols=n, figsize=(100, 40))
+    fig, axe = plt.subplots(nrows=5, ncols=n, figsize=(100, 60))
     for i in range(n):
-        axe[0, i].imshow(gt_list[i*10][0, 0].cpu())
-        axe[1, i].imshow(pred_list[i*10][0, 0].cpu())
-        axe[2, i].imshow(obsv_list[i*10][0, 0].cpu())
+        axe[0, i].imshow(gt_list[i * 10][0, 0].cpu())
+        axe[1, i].imshow(pred_list[i * 10][0, 0].cpu())
+        axe[2, i].imshow(flow_list[i * 10][0, 0].cpu())
+        axe[3, i].imshow(pres_list[i * 10][0, 0].cpu())
+        axe[4, i].imshow(obsv_list[i * 10][0, 0].cpu())
 
     print("saved")
     plt.savefig('ukf.png')

@@ -15,10 +15,11 @@ def get_config():
   inverse.operator = 'inpaint_rnd'
   inverse.invert = False
   inverse.ratio = 0.9
-  inverse.variance = 0.01
+  inverse.variance = 0.001
 
   # ukf
   kf = config.kf = ml_collections.ConfigDict()
   kf.patch_size = 8
+  kf.type = 'pf' #'ukf'
 
   return config

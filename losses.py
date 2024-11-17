@@ -19,25 +19,41 @@
 import torch
 import torch.optim as optim
 import numpy as np
+import torch.nn.functional as F
 from models import utils as mutils
 from sde_lib import VESDE, VPSDE
 
+from bayesian_torch.models.dnn_to_bnn import get_kl_loss
 
-def get_optimizer(config, params):
+
+def get_optimizer(config, params, lr_mul=1.0, is_bpinn=False):
     """Returns a flax optimizer object based on `config`."""
+
+    if is_bpinn:
+        lr = config.optim.bpinn_lr
+        decay = config.optim.bpinn_weight_decay
+    else:
+        lr = config.optim.lr
+        decay = config.optim.weight_decay
+
     if config.optim.optimizer == 'Adam':
-        optimizer = optim.Adam(params, lr=config.optim.lr, betas=(config.optim.beta1, 0.999), eps=config.optim.eps,
-                               weight_decay=config.optim.weight_decay)
+        optimizer = optim.Adam(params, lr=lr*lr_mul, betas=(config.optim.beta1, 0.999), eps=config.optim.eps,
+                               weight_decay=decay)
     else:
         raise NotImplementedError(f'Optimizer {config.optim.optimizer} not supported yet!')
 
     return optimizer
 
 
-def optimization_manager(config):
+def optimization_manager(config, is_bpinn=False):
     """Returns an optimize_fn based on `config`."""
 
-    def optimize_fn(optimizer, params, step, lr=config.optim.lr, warmup=config.optim.warmup,
+    if is_bpinn:
+        lr = config.optim.bpinn_lr
+    else:
+        lr = config.optim.lr
+
+    def optimize_fn(optimizer, params, step, lr=lr, warmup=config.optim.warmup,
                     grad_clip=config.optim.grad_clip):
         """Optimizes with warmup and gradient clipping (disabled if negative)."""
         if warmup > 0:
@@ -207,42 +223,165 @@ def get_step_fn(sde, train, optimize_fn=None, reduce_mean=False, continuous=True
 
     return step_fn
 
+def check_for_nans(model):
+    for name, param in model.named_parameters():
+        if torch.isnan(param).any():
+            print(f'NaN detected in parameter: {name}')
+            return True
+    return False
 
-def get_pinn_step_fn(config, train, optimize_fn):
-    def loss_fn(model, batch):
+def get_prelim_step_fn(config, train, optimize_fn, is_bpinn=False):
 
-        f1, f2, coord, t, target = batch
+    error_fn = torch.nn.MSELoss()
 
-        prediction = model(f1, f2, coord, t)
-        mse_data = model.data_mse(prediction, target[:,:2])
-        return mse_data, mse_data, mse_data
-        #mse_equation = model.equation_mse_dimensionless(x, y, t, prediction, 100000.0)
+    def kl_loss_fn(model):
+        kl_loss = get_kl_loss(model)
+        if kl_loss is not None:
+            return kl_loss / config.training.batch_size
+        else:
+            return 0.0
 
-        #loss = 1e8*mse_equation + 1e-2*mse_data
-        #return loss, mse_equation, mse_data
+    def flow_loss_fn(model, operator, batch):
 
-    def step_fn(state, batch):
+        f1, f2, x, y, t, target = batch
+        f1 = operator(f1, keep_shape=True) + torch.randn_like(f1) * config.inverse.variance ** 0.5
+        f2 = operator(f2, keep_shape=True) + torch.randn_like(f2) * config.inverse.variance ** 0.5
+
+        veloc_pred = model(f1, f2, x, y, t)
+        v_loss = model.multiscale_data_mse(veloc_pred, target, error_fn=error_fn)
+
+        if is_bpinn:
+            return v_loss + kl_loss_fn(model) * 0.1
+        else:
+            return v_loss
+
+    def pres_loss_fn(model, batch):
+
+        f1, f2, x, y, t, target = batch
+
+        cascaded_flow = [target[:,0:2]]
+        for i in range(len(config.model.feature_nums)):
+            flow = cascaded_flow[-1]
+            size = (flow.shape[2]//2, flow.shape[3]//2)
+            flow = F.interpolate(input=flow, size=size, mode='bilinear', align_corners=False)
+            cascaded_flow.append(flow)
+
+        pres_pred = model(cascaded_flow[::-1], x, y, t)
+        p_loss = model.data_mse(pres_pred, target, error_fn=error_fn)
+
+        if is_bpinn:
+            return p_loss + kl_loss_fn(model) * 0.01
+        else:
+            return p_loss
+
+    def step_fn(state, operator, batch):
         model = state['model']
+        flownet = model.flownet
+        pressurenet = model.pressurenet
+        operator.next()
 
         if train:
-            model.train()
+            optimizer_flow, optimizer_pres = state['optimizer']
+            '''
+            
+            Flow Net Rraining
+            
+            '''
+            flownet.train()
 
-            optimizer = state['optimizer']
-            optimizer.zero_grad()
-            loss, loss_e, loss_d = loss_fn(model, batch)
-            loss.backward()
-            optimize_fn(optimizer, model.parameters(), step=state['step'])
+            optimizer_flow.zero_grad()
+            v_loss = flow_loss_fn(flownet, operator, batch)
+
+            v_loss.backward()
+            optimize_fn(optimizer_flow, flownet.parameters(), step=state['step'])
+
+            '''
+            
+            Pressure Net Training
+            
+            '''
+
+            pressurenet.train()
+
+            optimizer_pres.zero_grad()
+            p_loss = pres_loss_fn(pressurenet, batch)
+
+            p_loss.backward()
+            optimize_fn(optimizer_pres, pressurenet.parameters(), step=state['step'])
+
             state['step'] += 1
             state['ema'].update(model.parameters())
+
         else:
             model.eval()
 
             ema = state['ema']
             ema.store(model.parameters())
             ema.copy_to(model.parameters())
-            loss, loss_e, loss_d = loss_fn(model, batch)
+            v_loss = flow_loss_fn(flownet, operator, batch)
+            p_loss = pres_loss_fn(pressurenet, batch)
             ema.restore(model.parameters())
 
-        return loss, loss_e, loss_d
+        loss = v_loss + p_loss
+
+        return loss, v_loss, p_loss
 
     return step_fn
+
+
+def get_pinn_step_fn(config, train, optimize_fn):
+
+    def loss_fn(model, operator, batch):
+
+        f1, f2, x, y, t, target = batch
+        f1 = operator(f1, keep_shape=True) + torch.randn_like(f1) * config.inverse.variance ** 0.5
+        f2 = operator(f2, keep_shape=True) + torch.randn_like(f2) * config.inverse.variance ** 0.5
+        flow_pred, pres_pred = model(f1, f2, x, y, t)
+
+        v_loss = model.flownet.multiscale_data_mse(flow_pred, target)
+        p_loss = model.pressurenet.data_mse(pres_pred, target)
+        data_loss = v_loss + p_loss
+
+        pinn_loss = model.equation_mse(x, y, t, flow_pred[-1], pres_pred, 10000000.0) * config.training.pinn_loss_weight
+
+        return pinn_loss + data_loss, pinn_loss, data_loss
+
+    def step_fn(state, operator, batch):
+        model = state['model']
+        operator.next()
+
+        if train:
+            optimizer_flow, optimizer_pres = state['optimizer']
+
+            model.train()
+            optimizer_flow.zero_grad()
+            optimizer_pres.zero_grad()
+            loss, pinn_loss, data_loss = loss_fn(model, operator, batch)
+
+            layer = model.pressurenet.end[-1]
+            w = layer.weight
+            grad = torch.autograd.grad(loss, w, retain_graph=True)[0]
+            if torch.isnan(grad).any():
+                print(">>> Nan Grad Detected <<<")
+                return loss, pinn_loss, data_loss
+
+            loss.backward()
+            optimize_fn(optimizer_flow, model.flownet.parameters(), step=state['step'])
+            optimize_fn(optimizer_pres, model.pressurenet.parameters(), step=state['step'])
+
+            state['step'] += 1
+            state['ema'].update(model.parameters())
+
+        else:
+            model.eval()
+
+            ema = state['ema']
+            ema.store(model.parameters())
+            ema.copy_to(model.parameters())
+            loss, pinn_loss, data_loss = loss_fn(model, operator, batch)
+            ema.restore(model.parameters())
+
+        return loss, pinn_loss, data_loss
+
+    return step_fn
+

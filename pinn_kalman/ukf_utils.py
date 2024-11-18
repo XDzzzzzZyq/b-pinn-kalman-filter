@@ -97,6 +97,8 @@ class NSDynamics(DynamicsModel):
         # initial_states must be patched
         # unpatch
         print("initial_states", torch.isnan(initial_states).any(), torch.isinf(initial_states).any())
+        initial_states = initial_states.reshape(4, (self.size//self.dim)**2, -1, self.dim**2)
+        initial_states = initial_states.transpose(1, 2).contiguous()
         unpatched = self.unpatch(initial_states)
         f = unpatched[:, 0:1]
         v = unpatched[:, 1:3]

@@ -7,6 +7,17 @@ void update_gradient_op(
     const torch::Tensor& field,
     float dx
 );
+void update_vorticity_op(
+    torch::Tensor& vort,
+    const torch::Tensor& field,
+    float dx
+);
+void update_confinement_op(
+    torch::Tensor& confinement,
+    const torch::Tensor& vort,
+    const torch::Tensor& dv_dx,
+    const torch::Tensor& dv_dy
+);
 void update_density_op(
     torch::Tensor& dens_n,
     const torch::Tensor& dens_c,
@@ -26,9 +37,8 @@ void update_velocity_non_advec_op(
 void update_velocity_op(
     torch::Tensor& u_n,
     const torch::Tensor& u_c,
-    const torch::Tensor& u_dx,
-    const torch::Tensor& u_dy,
-    const torch::Tensor& vel_c,
+    const torch::Tensor& du_dx,
+    const torch::Tensor& du_dy,
     float dt, float dx
 );
 void update_pressure_op(
@@ -56,6 +66,25 @@ torch::Tensor update_density(const torch::Tensor& dens_c, const torch::Tensor& v
     return dens_n;
 }
 
+torch::Tensor calc_vort_confinement(const torch::Tensor& vel_c, float dx) {
+    CHECK_CUDA(vel_c);
+
+    int B = vel_c.size(0);
+    int H = vel_c.size(2);
+    int W = vel_c.size(3);
+    torch::Tensor vort = torch::empty({B, 1, H, W}).to(vel_c.device());
+    update_vorticity_op(vort, vel_c, dx);
+
+    torch::Tensor dv_dx = torch::empty_like(vort);
+    torch::Tensor dv_dy = torch::empty_like(vort);
+    update_gradient_op(dv_dx, dv_dy, torch::abs(vort), dx);
+
+    torch::Tensor confinement = torch::empty_like(vel_c);
+    update_confinement_op(confinement, vort, dv_dx, dv_dy);
+
+    return confinement;
+}
+
 torch::Tensor update_velocity(const torch::Tensor& vel_c, const torch::Tensor& pres_c, float dt, float dx) {
     CHECK_CUDA(vel_c);
     CHECK_CUDA(pres_c);
@@ -70,25 +99,23 @@ torch::Tensor update_velocity(const torch::Tensor& vel_c, const torch::Tensor& p
     std::vector<torch::Tensor> vel_split = torch::unbind(vel_n, 1);
     torch::Tensor u = torch::unsqueeze(vel_split[0], 1);
     torch::Tensor v = torch::unsqueeze(vel_split[1], 1);
-    // u update
 
     torch::Tensor du_dx = torch::empty_like(u);
     torch::Tensor du_dy = torch::empty_like(u);
     update_gradient_op(du_dx, du_dy, u, dx);
 
-    torch::Tensor u_n = torch::empty_like(u);
-    update_velocity_op(u_n, u, du_dx, du_dy, vel_n, dt, dx);
-
-    // v update
-
     torch::Tensor dv_dx = torch::empty_like(v);
     torch::Tensor dv_dy = torch::empty_like(v);
     update_gradient_op(dv_dx, dv_dy, v, dx);
 
-    torch::Tensor v_n = torch::empty_like(v);
-    update_velocity_op(v_n, v, dv_dx, dv_dy, vel_n, dt, dx);
+    torch::Tensor vel_a = torch::empty_like(vel_n);
+    update_velocity_op(vel_a,
+                       vel_n,
+                       torch::cat(std::vector<torch::Tensor>{du_dx, dv_dx}, 1),
+                       torch::cat(std::vector<torch::Tensor>{du_dy, dv_dy}, 1),
+                       dt, dx);
 
-    return torch::cat(std::vector<torch::Tensor>{u_n, v_n}, 1);
+    return vel_a;
 }
 
 torch::Tensor update_pressure(const torch::Tensor& pres_c, const torch::Tensor& vel_c, float dt, float dx) {
@@ -105,4 +132,5 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("update_density", &update_density, "Update density field");
     m.def("update_velocity", &update_velocity, "Update velocity field");
     m.def("update_pressure", &update_pressure, "Update pressure field");
+    m.def("calc_vort_confinement", &calc_vort_confinement, "Calculate Vorticity Confinement");
 }

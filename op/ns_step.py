@@ -24,3 +24,8 @@ def update_velocity(vel, pres, dt, dx):
 
 def update_pressure(pres, vel, dt, dx):
     return ns_step_forward.update_pressure(pres, vel, dt, dx)
+
+def vorticity_confinement(vel, weight, dt, dx):
+    confinement = ns_step_forward.calc_vort_confinement(vel, dx)
+    print(confinement)
+    return vel + dt * weight * confinement

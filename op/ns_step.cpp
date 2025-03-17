@@ -7,6 +7,11 @@ void update_gradient_op(
     const torch::Tensor& field,
     float dx
 );
+void update_laplacian_op(
+    torch::Tensor& lapla,
+    const torch::Tensor& field,
+    float dx
+);
 void update_vorticity_op(
     torch::Tensor& vort,
     const torch::Tensor& field,
@@ -78,11 +83,30 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> update_density(
     CHECK_CUDA(df_dy);
     CHECK_CUDA(vel_c);
 
-    torch::Tensor dens_n = torch::empty_like(dens_c);
-    torch::Tensor df_dx_n = torch::empty_like(df_dx);
-    torch::Tensor df_dy_n = torch::empty_like(df_dy);
-    update_density_op(dens_n, df_dx_n, df_dy_n,
-                      dens_c, df_dx, df_dy, vel_c,
+
+    // Non advect
+    torch::Tensor lapla = torch::empty_like(dens_c);
+    update_laplacian_op(lapla, dens_c, dx);
+    torch::Tensor dens_n = dens_c + lapla / 10000000.0 * dt;
+
+    // Non advection gradient
+    torch::Tensor _df_dx_c = torch::empty_like(dens_c);
+    torch::Tensor _df_dy_c = torch::empty_like(dens_c);
+    torch::Tensor _df_dx_n = torch::empty_like(dens_n);
+    torch::Tensor _df_dy_n = torch::empty_like(dens_n);
+    update_gradient_op(_df_dx_c, _df_dy_c, dens_c, dx);
+    update_gradient_op(_df_dx_n, _df_dy_n, dens_n, dx);
+
+    torch::Tensor df_dx_n = df_dx + (_df_dx_n - _df_dx_c);
+    torch::Tensor df_dy_n = df_dy + (_df_dy_n - _df_dy_c);
+
+    // Advect
+    torch::Tensor dens_a = torch::empty_like(dens_n);
+    torch::Tensor df_dx_a = torch::empty_like(df_dx);
+    torch::Tensor df_dy_a = torch::empty_like(df_dy);
+    update_density_op(dens_a, df_dx_a, df_dy_a,
+                      dens_n, df_dx_n, df_dy_n,
+                      vel_c,
                       dt, dx, 0);
 
     return {dens_n, df_dx_n, df_dy_n};
@@ -125,6 +149,10 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> update_velocity(
     // Non advection
     torch::Tensor vel_n = torch::empty_like(vel_c);
     update_velocity_non_advec_op(vel_n, vel_c, dp_dx, dp_dy, dt);
+
+    torch::Tensor lapla = torch::empty_like(vel_c);
+    update_laplacian_op(lapla, vel_c, dx);
+    vel_n = vel_n + lapla / 10000000.0 * dt;
 
     // Non advection gradient
     torch::Tensor _dv_dx_c = torch::empty_like(vel_c);

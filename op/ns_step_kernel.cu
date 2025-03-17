@@ -53,6 +53,31 @@ static __global__ void update_gradient2D_kernel(
 }
 
 template <typename scalar_t>
+static __global__ void update_laplacian_kernel(
+    scalar_t* lapla,
+    const scalar_t* field,
+    float dx
+) {
+    int batch = threadIdx.x * gridDim.x * gridDim.y;
+    int x = blockIdx.x;
+    int y = blockIdx.y;
+    int loc = batch + y * gridDim.x + x;
+
+    lapla[loc] = diff2_x(field, x, y, dx) + diff2_y(field, x, y, dx);
+}
+
+template <typename scalar_t>
+static __global__ void update_laplacian2D_kernel(
+    scalar_t* lapla,
+    const scalar_t* field,
+    float dx
+) {
+    int x = blockIdx.x;
+    int y = blockIdx.y;
+    set_v(lapla, diff2_xv(field, x, y, dx) + diff2_yv(field, x, y, dx), x, y);
+}
+
+template <typename scalar_t>
 static __global__ void update_vorticity_kernel(
     scalar_t* vort,
     const scalar_t* field,
@@ -264,8 +289,8 @@ static __global__ void pressure_update_kernel(
     int y_u = clamp_y(y+1);
     int y_d = clamp_y(y-1);
 
-    vector<scalar_t> sub_x = get_v(vel_c, x_u, y) - get_v(vel_c, x_d, y);
-    vector<scalar_t> sub_y = get_v(vel_c, x, y_u) - get_v(vel_c, x, y_d);
+    vector<scalar_t> sub_x = diff_xv(vel_c, x, y, dx) * dx * 2;
+    vector<scalar_t> sub_y = diff_yv(vel_c, x, y, dx) * dx * 2;
 
     scalar_t aver_p = 0.25 * (get(pres_c, x_d, y)+get(pres_c, x_u, y)+get(pres_c, x, y_d)+get(pres_c, x, y_u));
 
@@ -317,7 +342,41 @@ void update_gradient_op(
             );
         });
     }
+}
 
+void update_laplacian_op(
+    torch::Tensor& lapla,
+    const torch::Tensor& field,
+    float dx
+) {
+    int curDevice = -1;
+    cudaGetDevice(&curDevice);
+    cudaStream_t stream = at::cuda::getCurrentCUDAStream(curDevice);
+
+    int b = field.size(0);
+    int c = field.size(1);
+    int h = field.size(2);
+    int w = field.size(3);
+    dim3 block_size(h, w, 1);
+
+    if(c == 1)
+    {
+        AT_DISPATCH_FLOATING_TYPES_AND_HALF(field.scalar_type(), "update_laplacian_kernel", [&] {
+            update_laplacian_kernel<scalar_t><<<block_size, b, 0, stream>>>(
+                lapla.data_ptr<scalar_t>(),
+                field.data_ptr<scalar_t>(),
+                dx
+            );
+        });
+    }else if(c == 2){
+        AT_DISPATCH_FLOATING_TYPES_AND_HALF(field.scalar_type(), "update_laplacian2D_kernel", [&] {
+            update_laplacian2D_kernel<scalar_t><<<block_size, b, 0, stream>>>(
+                lapla.data_ptr<scalar_t>(),
+                field.data_ptr<scalar_t>(),
+                dx
+            );
+        });
+    }
 }
 
 void update_vorticity_op(

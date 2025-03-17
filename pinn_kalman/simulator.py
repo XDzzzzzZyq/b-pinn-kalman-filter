@@ -3,7 +3,7 @@ from op import ns_step
 
 import torch
 
-dt = 0.0005*5
+dt = 0.0005
 dx = 1/200
 
 def simulate(model:PINN, begin, t_range=(0, 100), stride=1):
@@ -47,6 +47,7 @@ def step(device, begin, t_range=(0, 100), stride=1):
     result = []
     vel = []
     pres = []
+    diff = []
 
     t0, tm = t_range
 
@@ -55,17 +56,23 @@ def step(device, begin, t_range=(0, 100), stride=1):
     v = torch.cat([v[:, 1:2], v[:, 0:1]], 1)
     p = prep(begin[0 + t0, 5:6])
 
+    df_dx, df_dy = ns_step.diff(f, dx)
+    dv_dx, dv_dy = ns_step.diff(v, dx)
+
     for t in torch.arange(*t_range, stride):
-        for i in range(1):
-            v = ns_step.update_velocity(v, p, dt, dx)
-            v = ns_step.vorticity_confinement(v, 3.0, dt, dx)
+        for i in range(5):
+            v, dv_dx, dv_dy = ns_step.update_velocity(v, dv_dx, dv_dy, p, dt, dx)
+            # v = ns_step.vorticity_confinement(v, 3.0, dt, dx)
             p = ns_step.update_pressure(p, v, dt, dx)
-            f = ns_step.update_density(f, v, dt, dx)
+            f, df_dx, df_dy = ns_step.update_density(f, df_dx, df_dy, v, dt, dx)
+            dfx, dfy = ns_step.diff(f, dx)
+
         result.append(f)
         vel.append(v)
         pres.append(p)
+        diff.append(dfx)
 
-    return result, vel, pres
+    return result, vel, pres, diff
 
 
 if __name__ == '__main__':
@@ -89,24 +96,26 @@ if __name__ == '__main__':
     model = utils.load_checkpoint(workdir, model, config.device)
 
     with torch.no_grad():
-        result, vel, pres = step(config.device, data, t_range=(802, 902))
+        result, vel, pres, diff = step(config.device, data, t_range=(802, 902))
         # result, vel, pres = simulate(model, data, t_range=(802, 902))
-        result, vel, pres = result[::10], vel[::10], pres[::10]
+        result, vel, pres, diff = result[::10], vel[::10], pres[::10], diff[::10]
 
     if True:
-        fig, axe = plt.subplots(nrows=6, ncols=6, figsize=(25, 25))
+        fig, axe = plt.subplots(nrows=7, ncols=6, figsize=(25, 25))
         for i in range(6):
             axe[0, i].imshow(result[i][0, 0].cpu(), vmin=0.0, vmax=0.6)
 
-            axe[1, i].imshow(data[802+i*10, 2, 8:200, 4:-4], vmin=0.0, vmax=0.6)
+            axe[1, i].imshow(data[802 + i * 10, 2, 8:200, 4:-4], vmin=0.0, vmax=0.6)
 
-            axe[2, i].imshow(vel[i][0, 0].cpu(), vmin=-1.5, vmax=1.5)
+            axe[2, i].imshow(diff[i][0, 0].cpu())
 
-            axe[3, i].imshow(vel[i][0, 1].cpu(), vmin=-1.5, vmax=1.5)
+            axe[3, i].imshow(vel[i][0, 0].cpu(), vmin=-1.5, vmax=1.5)
 
-            axe[4, i].imshow(pres[i][0, 0].cpu(), vmin=-4, vmax=0.2)
+            axe[4, i].imshow(vel[i][0, 1].cpu(), vmin=-1.5, vmax=1.5)
 
-            axe[5, i].imshow(data[802+i*10, 5, 8:200, 4:-4], vmin=-4, vmax=0.2)
+            axe[5, i].imshow(pres[i][0, 0].cpu(), vmin=-4, vmax=0.2)
+
+            axe[6, i].imshow(data[802+i*10, 5, 8:200, 4:-4], vmin=-4, vmax=0.2)
 
     else:
         fig, axe = plt.subplots(nrows=8, ncols=10, figsize=(25, 15))

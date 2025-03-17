@@ -16,162 +16,7 @@
 
 #include <iostream>
 
-template <typename scalar_t>
-struct vector{
-    scalar_t x;
-    scalar_t y;
-
-    __device__ vector<scalar_t> operator+(const vector<scalar_t>& b) const {
-        return vector<scalar_t>{x + b.x, y + b.y};
-    }
-    __device__ vector<scalar_t> operator-(const vector<scalar_t>& b) const {
-        return vector<scalar_t>{x - b.x, y - b.y};
-    }
-    __device__ vector<scalar_t> operator*(const vector<scalar_t>& b) const {
-        return vector<scalar_t>{x * b.x, y * b.y};
-    }
-    __device__ vector<scalar_t> operator*(const scalar_t& scalar) const {
-        return vector<scalar_t>{x * scalar, y * scalar};
-    }
-    friend __device__ vector<scalar_t> operator*(const scalar_t& scalar, const vector<scalar_t>& v) {
-        return vector<scalar_t>{v.x * scalar, v.y * scalar};
-    }
-    __device__ vector<scalar_t> operator/(const scalar_t& scalar) const {
-        return vector<scalar_t>{x / scalar, y / scalar};
-    }
-    __device__ vector<scalar_t>& operator+=(const vector<scalar_t>& b) {
-        x += b.x;
-        y += b.y;
-        return *this;
-    }
-    __device__ vector<scalar_t>& operator-=(const vector<scalar_t>& b) {
-        x -= b.x;
-        y -= b.y;
-        return *this;
-    }
-    __device__ vector<scalar_t>& operator*=(const scalar_t& scalar) {
-        x *= scalar;
-        y *= scalar;
-        return *this;
-    }
-    __device__ vector<scalar_t>& operator/=(const scalar_t& scalar) {
-        x /= scalar;
-        y /= scalar;
-        return *this;
-    }
-    __device__ vector<scalar_t> clamp(float _min, float _max){
-        scalar_t _x = min(max(x, _min), _max);
-        scalar_t _y = min(max(y, _min), _max);
-        return vector<scalar_t>{_x, _y};
-    }
-};
-
-template <typename scalar_t>
-static __device__ scalar_t get(
-    const scalar_t* field,
-    int x, int y
-){
-    int batch = threadIdx.x * gridDim.x * gridDim.y;
-    return field[batch + y * gridDim.x + x];
-}
-
-template <typename scalar_t>
-static __device__ vector<scalar_t> get_v(
-    const scalar_t* field,
-    int x, int y
-){
-    int batch0 = threadIdx.x * gridDim.x * gridDim.y * 2;
-    int batch1 = threadIdx.x * gridDim.x * gridDim.y * 2 + gridDim.x * gridDim.y;
-    vector<scalar_t> vec{field[batch0 + y * gridDim.x + x], field[batch1 + y * gridDim.x + x]};
-    return vec;
-}
-
-template <typename scalar_t>
-static __device__ vector<scalar_t> set_v(
-    scalar_t* field,
-    const vector<scalar_t>& vec,
-    int x, int y
-){
-    int batch0 = threadIdx.x * gridDim.x * gridDim.y * 2;
-    int batch1 = threadIdx.x * gridDim.x * gridDim.y * 2 + gridDim.x * gridDim.y;
-    field[batch0 + y * gridDim.x + x] = vec.x;
-    field[batch1 + y * gridDim.x + x] = vec.y;
-}
-
-template <typename scalar_t>
-static __device__ scalar_t diff_x(
-    const scalar_t* field,
-    int x, int y, float dx
-) {
-    if (x == 0){
-        return (get(field, x+1, y) - get(field, x  , y)) / dx;
-    }else if(x == gridDim.y-1){
-        return (get(field, x  , y) - get(field, x-1, y)) / dx;
-    }else{
-        return (get(field, x+1, y) - get(field, x-1, y)) / dx/2;
-    }
-}
-
-template <typename scalar_t>
-static __device__ scalar_t diff_y(
-    const scalar_t* field,
-    int x, int y, float dx
-) {
-    if (y == 0){
-        return (get(field, x, y+1) - get(field, x, y  )) / dx;
-    }else if(y == gridDim.x-1){
-        return (get(field, x, y  ) - get(field, x, y-1)) / dx;
-    }else{
-        return (get(field, x, y+1) - get(field, x, y-1)) / dx/2;
-    }
-}
-
-template <typename scalar_t>
-static __device__ vector<scalar_t> diff_xv(
-    const scalar_t* field,
-    int x, int y, float dx
-) {
-    if (x == 0){
-        return (get_v(field, x+1, y) - get_v(field, x  , y)) / dx;
-    }else if(x == gridDim.y-1){
-        return (get_v(field, x  , y) - get_v(field, x-1, y)) / dx;
-    }else{
-        return (get_v(field, x+1, y) - get_v(field, x-1, y)) / dx/2;
-    }
-}
-
-template <typename scalar_t>
-static __device__ vector<scalar_t> diff_yv(
-    const scalar_t* field,
-    int x, int y, float dx
-) {
-    if (y == 0){
-        return (get_v(field, x, y+1) - get_v(field, x, y  )) / dx;
-    }else if(y == gridDim.x-1){
-        return (get_v(field, x, y  ) - get_v(field, x, y-1)) / dx;
-    }else{
-        return (get_v(field, x, y+1) - get_v(field, x, y-1)) / dx/2;
-    }
-}
-
-static __device__ int clamp_x(int x){
-    return x < 0 ? -x : (x > gridDim.y-1 ? 2*gridDim.y-2-x : x);
-}
-
-static __device__ int clamp_y(int y){
-    return y < 0 ? -y : (y > gridDim.x-1 ? 2*gridDim.x-2-y : y);
-}
-
-template <typename scalar_t>
-static __device__ int sign(scalar_t x){
-    if(x<0.0){
-        return -1;
-    }else if(x>0.0){
-        return 1;
-    }else{
-        return 0;
-    }
-}
+#include "pixelUtils.cuh"
 
 template <typename scalar_t>
 static __global__ void update_gradient_kernel(
@@ -189,6 +34,22 @@ static __global__ void update_gradient_kernel(
         df_dx[loc] = diff_x(field, x, y, dx);
     else
         df_dy[loc] = diff_y(field, x, y, dx);
+}
+
+template <typename scalar_t>
+static __global__ void update_gradient2D_kernel(
+    scalar_t* df_dx,
+    scalar_t* df_dy,
+    const scalar_t* field,
+    float dx
+) {
+    int x = blockIdx.x;
+    int y = blockIdx.y;
+
+    if(blockIdx.z%2==0)
+        set_v(df_dx, diff_xv(field, x, y, dx), x, y);
+    else
+        set_v(df_dy, diff_yv(field, x, y, dx), x, y);
 }
 
 template <typename scalar_t>
@@ -231,10 +92,12 @@ static __global__ void update_vort_confinement_kernel(
 
 template <typename scalar_t>
 static __global__ void cip_advect_kernel(
-    scalar_t* dens2d_n,
-    const scalar_t* dens2d_c,
-    const scalar_t* dens2d_dx,
-    const scalar_t* dens2d_dy,
+    scalar_t* dens_n,
+    scalar_t* df_dx_n,
+    scalar_t* df_dy_n,
+    const scalar_t* dens_c,
+    const scalar_t* dens_dx,
+    const scalar_t* dens_dy,
     const scalar_t* vel_c,
     float dt, float dx
 ) {
@@ -248,35 +111,46 @@ static __global__ void cip_advect_kernel(
     int x_m = clamp_x(x - x_s);
     int y_m = clamp_y(y - y_s);
 
-    scalar_t tmp1 = get(dens2d_c, x, y) - get(dens2d_c, x, y_m) - get(dens2d_c, x_m, y) + get(dens2d_c, x_m, y_m);
-    scalar_t tmp2 = get(dens2d_c, x_m, y) - get(dens2d_c, x, y);
-    scalar_t tmp3 = get(dens2d_c, x, y_m) - get(dens2d_c, x, y);
+    scalar_t tmp1 = get(dens_c, x, y) - get(dens_c, x, y_m) - get(dens_c, x_m, y) + get(dens_c, x_m, y_m);
+    scalar_t tmp2 = get(dens_c, x_m, y) - get(dens_c, x, y);
+    scalar_t tmp3 = get(dens_c, x, y_m) - get(dens_c, x, y);
 
     scalar_t x_s_denom = x_s * dx*dx*dx;
     scalar_t y_s_denom = y_s * dx*dx*dx;
 
-    scalar_t a = (x_s * (get(dens2d_dx, x_m, y) + get(dens2d_dx, x, y)) * dx - 2.0 * (-tmp2)) / x_s_denom;
-    scalar_t b = (y_s * (get(dens2d_dy, x, y_m) + get(dens2d_dy, x, y)) * dx - 2.0 * (-tmp3)) / y_s_denom;
-    scalar_t c = (-tmp1 - x_s * (get(dens2d_dx, x, y_m) - get(dens2d_dx, x, y)) * dx) / y_s_denom;
-    scalar_t d = (-tmp1 - y_s * (get(dens2d_dy, x_m, y) - get(dens2d_dy, x, y)) * dx) / x_s_denom;
-    scalar_t e = (3.0 * tmp2 + x_s * (get(dens2d_dx, x_m, y) + 2.0 * get(dens2d_dx, x, y)) * dx) / dx/dx;
-    scalar_t f = (3.0 * tmp3 + y_s * (get(dens2d_dy, x, y_m) + 2.0 * get(dens2d_dy, x, y)) * dx) / dx/dx;
-    scalar_t g = (-(get(dens2d_dy, x_m, y) - get(dens2d_dy, x, y)) + c * dx*dx) / (x_s * dx);
+    scalar_t a = (x_s * (get(dens_dx, x_m, y) + get(dens_dx, x, y)) * dx - 2.0 * (-tmp2)) / x_s_denom;
+    scalar_t b = (y_s * (get(dens_dy, x, y_m) + get(dens_dy, x, y)) * dx - 2.0 * (-tmp3)) / y_s_denom;
+    scalar_t c = (-tmp1 - x_s * (get(dens_dx, x, y_m) - get(dens_dx, x, y)) * dx) / y_s_denom;
+    scalar_t d = (-tmp1 - y_s * (get(dens_dy, x_m, y) - get(dens_dy, x, y)) * dx) / x_s_denom;
+    scalar_t e = (3.0 * tmp2 + x_s * (get(dens_dx, x_m, y) + 2.0 * get(dens_dx, x, y)) * dx) / dx/dx;
+    scalar_t f = (3.0 * tmp3 + y_s * (get(dens_dy, x, y_m) + 2.0 * get(dens_dy, x, y)) * dx) / dx/dx;
+    scalar_t g = (-(get(dens_dy, x_m, y) - get(dens_dy, x, y)) + c * dx*dx) / (x_s * dx);
 
     scalar_t X = -get_v(vel_c, x, y).x * dt;
     scalar_t Y = -get_v(vel_c, x, y).y * dt;
 
     int loc = batch + y * gridDim.x + x;
-    dens2d_n[loc] = ( \
-            ((a * X + c * Y + e) * X + g * Y + get(dens2d_dx, x, y)) * X \
-            + ((b * Y + d * X + f) * Y + get(dens2d_dy, x, y)) * Y \
-            + get(dens2d_c, x, y) \
+    dens_n[loc] = ( \
+            ((a * X + c * Y + e) * X + g * Y + get(dens_dx, x, y)) * X \
+            + ((b * Y + d * X + f) * Y + get(dens_dy, x, y)) * Y \
+            + get(dens_c, x, y) \
     );
+
+    scalar_t Fx = (3.0 * a * X + 2.0 * c * Y + 2.0 * e) * X + (d * Y + g) * Y + get(dens_dx, x, y);
+    scalar_t Fy = (3.0 * b * Y + 2.0 * d * X + 2.0 * f) * Y + (c * X + g) * X + get(dens_dy, x, y);
+
+    vector<scalar_t> dv_dx = diff_xv(vel_c, x, y, dx);
+    vector<scalar_t> dv_dy = diff_yv(vel_c, x, y, dx);
+
+    df_dx_n[loc] = Fx - dt * (Fx * dv_dx.x + Fy * dv_dx.y) / 2.0;
+    df_dy_n[loc] = Fy - dt * (Fx * dv_dy.x + Fy * dv_dy.y) / 2.0;
 }
 
 template <typename scalar_t>
 static __global__ void cip_advect_vec_kernel(
     scalar_t* dens2d_n,
+    scalar_t* dens2d_dx_n,
+    scalar_t* dens2d_dy_n,
     const scalar_t* dens2d_c,
     const scalar_t* dens2d_dx,
     const scalar_t* dens2d_dy,
@@ -308,8 +182,8 @@ static __global__ void cip_advect_vec_kernel(
     vector<scalar_t> f = (3.0 * tmp3 + y_s * (get_v(dens2d_dy, x, y_m) + 2.0 * get_v(dens2d_dy, x, y)) * dx) / dx/dx;
     vector<scalar_t> g = (-1.0*(get_v(dens2d_dy, x_m, y) - get_v(dens2d_dy, x, y)) + c * dx*dx) / (x_s * dx);
 
-    scalar_t X = -get_v(vel_c, x, y).x * dt;
-    scalar_t Y = -get_v(vel_c, x, y).y * dt;
+    scalar_t X = -1.0*get_v(vel_c, x, y).x * dt;
+    scalar_t Y = -1.0*get_v(vel_c, x, y).y * dt;
 
     int loc = batch + y * gridDim.x + x;
     vector<scalar_t> New = ( \
@@ -317,8 +191,16 @@ static __global__ void cip_advect_vec_kernel(
             + ((b * Y + d * X + f) * Y + get_v(dens2d_dy, x, y)) * Y \
             + get_v(dens2d_c, x, y) \
     );
-
     set_v(dens2d_n, New, x, y);
+
+    vector<scalar_t> Fx = (3.0 * a * X + 2.0 * c * Y + 2.0 * e) * X + (d * Y + g) * Y + get_v(dens2d_dx, x, y);
+    vector<scalar_t> Fy = (3.0 * b * Y + 2.0 * d * X + 2.0 * f) * Y + (c * X + g) * X + get_v(dens2d_dy, x, y);
+
+    vector<scalar_t> dv_dx = diff_xv(vel_c, x, y, dx);
+    vector<scalar_t> dv_dy = diff_yv(vel_c, x, y, dx);
+
+    set_v(dens2d_dx_n, Fx - dt * (Fx * dv_dx.x + Fy * dv_dx.y) / 2.0, x, y);
+    set_v(dens2d_dy_n, Fy - dt * (Fx * dv_dy.x + Fy * dv_dy.y) / 2.0, x, y);
 }
 
 template <typename scalar_t>
@@ -342,7 +224,7 @@ static __global__ void advect_kernel(
 }
 
 template <typename scalar_t>
-static __global__ void velocity_update_kernel(
+static __global__ void velocity_non_advect_kernel(
     scalar_t* vel_n,
     const scalar_t* vel_c,
     const scalar_t* pres_dx,
@@ -410,18 +292,32 @@ void update_gradient_op(
     cudaStream_t stream = at::cuda::getCurrentCUDAStream(curDevice);
 
     int b = df_dx.size(0);
+    int c = df_dx.size(1);
     int h = df_dx.size(2);
     int w = df_dx.size(3);
     dim3 block_size(h, w, 2);
 
-    AT_DISPATCH_FLOATING_TYPES_AND_HALF(df_dx.scalar_type(), "update_gradient_kernel", [&] {
-        update_gradient_kernel<scalar_t><<<block_size, b, 0, stream>>>(
-            df_dx.data_ptr<scalar_t>(),
-            df_dy.data_ptr<scalar_t>(),
-            field.data_ptr<scalar_t>(),
-            dx
-        );
-    });
+    if(c == 1)
+    {
+        AT_DISPATCH_FLOATING_TYPES_AND_HALF(df_dx.scalar_type(), "update_gradient_kernel", [&] {
+            update_gradient_kernel<scalar_t><<<block_size, b, 0, stream>>>(
+                df_dx.data_ptr<scalar_t>(),
+                df_dy.data_ptr<scalar_t>(),
+                field.data_ptr<scalar_t>(),
+                dx
+            );
+        });
+    }else if(c == 2){
+        AT_DISPATCH_FLOATING_TYPES_AND_HALF(df_dx.scalar_type(), "update_gradient2D_kernel", [&] {
+            update_gradient2D_kernel<scalar_t><<<block_size, b, 0, stream>>>(
+                df_dx.data_ptr<scalar_t>(),
+                df_dy.data_ptr<scalar_t>(),
+                field.data_ptr<scalar_t>(),
+                dx
+            );
+        });
+    }
+
 }
 
 void update_vorticity_op(
@@ -448,42 +344,47 @@ void update_vorticity_op(
 }
 
 void update_density_op(
-    torch::Tensor& dens2d_n,
-    const torch::Tensor& dens2d_c,
-    const torch::Tensor& dens2d_dx,
-    const torch::Tensor& dens2d_dy,
+    torch::Tensor& dens_n,
+    torch::Tensor& dens_dx_n,
+    torch::Tensor& dens_dy_n,
+    const torch::Tensor& dens_c,
+    const torch::Tensor& dens_dx,
+    const torch::Tensor& dens_dy,
     const torch::Tensor& vel_c,
-    float dt, float dx, int method
+    float dt, float dx,
+    int method
 ) {
     int curDevice = -1;
     cudaGetDevice(&curDevice);
     cudaStream_t stream = at::cuda::getCurrentCUDAStream(curDevice);
 
-    int b = dens2d_c.size(0);
-    int h = dens2d_c.size(2);
-    int w = dens2d_c.size(3);
+    int b = dens_c.size(0);
+    int h = dens_c.size(2);
+    int w = dens_c.size(3);
     dim3 block_size(h, w, 1);
 
     switch(method){
     case 0:
-        AT_DISPATCH_FLOATING_TYPES_AND_HALF(dens2d_c.scalar_type(), "cip_advect_kernel", [&] {
+        AT_DISPATCH_FLOATING_TYPES_AND_HALF(dens_c.scalar_type(), "cip_advect_kernel", [&] {
         cip_advect_kernel<scalar_t><<<block_size, b, 0, stream>>>(
-                dens2d_n.data_ptr<scalar_t>(),
-                dens2d_c.data_ptr<scalar_t>(),
-                dens2d_dx.data_ptr<scalar_t>(),
-                dens2d_dy.data_ptr<scalar_t>(),
+                dens_n.data_ptr<scalar_t>(),
+                dens_dx_n.data_ptr<scalar_t>(),
+                dens_dy_n.data_ptr<scalar_t>(),
+                dens_c.data_ptr<scalar_t>(),
+                dens_dx.data_ptr<scalar_t>(),
+                dens_dy.data_ptr<scalar_t>(),
                 vel_c.data_ptr<scalar_t>(),
                 dt, dx
             );
         });
         break;
-    case 1:
-        AT_DISPATCH_FLOATING_TYPES_AND_HALF(dens2d_c.scalar_type(), "advect_kernel", [&] {
+    case 1: //TODO
+        AT_DISPATCH_FLOATING_TYPES_AND_HALF(dens_c.scalar_type(), "advect_kernel", [&] {
         advect_kernel<scalar_t><<<block_size, b, 0, stream>>>(
-                dens2d_n.data_ptr<scalar_t>(),
-                dens2d_c.data_ptr<scalar_t>(),
-                dens2d_dx.data_ptr<scalar_t>(),
-                dens2d_dy.data_ptr<scalar_t>(),
+                dens_n.data_ptr<scalar_t>(),
+                dens_c.data_ptr<scalar_t>(),
+                dens_dx.data_ptr<scalar_t>(),
+                dens_dy.data_ptr<scalar_t>(),
                 vel_c.data_ptr<scalar_t>(),
                 dt, dx
             );
@@ -509,8 +410,8 @@ void update_velocity_non_advec_op(
     int w = vel_c.size(3);
     dim3 block_size(h, w, 2);
 
-    AT_DISPATCH_FLOATING_TYPES_AND_HALF(vel_c.scalar_type(), "velocity_update_kernel", [&] {
-    velocity_update_kernel<scalar_t><<<block_size, b, 0, stream>>>(
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(vel_c.scalar_type(), "velocity_non_advect_kernel", [&] {
+    velocity_non_advect_kernel<scalar_t><<<block_size, b, 0, stream>>>(
             vel_n.data_ptr<scalar_t>(),
             vel_c.data_ptr<scalar_t>(),
             pres_dx.data_ptr<scalar_t>(),
@@ -521,10 +422,12 @@ void update_velocity_non_advec_op(
 }
 
 void update_velocity_op(
-    torch::Tensor& u_n,
-    const torch::Tensor& u_c,
-    const torch::Tensor& u_dx,
-    const torch::Tensor& u_dy,
+    torch::Tensor& vel_n,
+    torch::Tensor& dv_dx_n,
+    torch::Tensor& dv_dy_n,
+    const torch::Tensor& vel_c,
+    const torch::Tensor& dv_dx_c,
+    const torch::Tensor& dv_dy_c,
     float dt, float dx
 ){
 
@@ -532,18 +435,22 @@ void update_velocity_op(
     cudaGetDevice(&curDevice);
     cudaStream_t stream = at::cuda::getCurrentCUDAStream(curDevice);
 
-    int b = u_c.size(0);
-    int h = u_c.size(2);
-    int w = u_c.size(3);
+    int b = vel_c.size(0);
+    int h = vel_c.size(2);
+    int w = vel_c.size(3);
     dim3 block_size(h, w, 1);
 
-    AT_DISPATCH_FLOATING_TYPES_AND_HALF(u_c.scalar_type(), "cip_advect_vec_kernel", [&] {
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(vel_c.scalar_type(), "cip_advect_vec_kernel", [&] {
     cip_advect_vec_kernel<scalar_t><<<block_size, b, 0, stream>>>(
-            u_n.data_ptr<scalar_t>(),
-            u_c.data_ptr<scalar_t>(),
-            u_dx.data_ptr<scalar_t>(),
-            u_dy.data_ptr<scalar_t>(),
-            u_c.data_ptr<scalar_t>(),
+            vel_n.data_ptr<scalar_t>(),
+            dv_dx_n.data_ptr<scalar_t>(),
+            dv_dy_n.data_ptr<scalar_t>(),
+
+            vel_c.data_ptr<scalar_t>(),
+            dv_dx_c.data_ptr<scalar_t>(),
+            dv_dy_c.data_ptr<scalar_t>(),
+
+            vel_c.data_ptr<scalar_t>(),
             dt, dx
         );
     });
@@ -580,7 +487,7 @@ void update_pressure_op(
     const torch::Tensor& pres_c,
     const torch::Tensor& vel_c,
     float dt, float dx
-){
+) {
 
     int curDevice = -1;
     cudaGetDevice(&curDevice);

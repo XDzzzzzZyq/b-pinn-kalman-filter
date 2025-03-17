@@ -20,6 +20,6 @@ def get_config():
   # ukf
   kf = config.kf = ml_collections.ConfigDict()
   kf.patch_size = 8
-  kf.type = 'pf' #'ukf'
+  kf.type = 'sqrtukf' #'ukf', 'sqrtukf', 'pf'
 
   return config

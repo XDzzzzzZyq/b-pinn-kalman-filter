@@ -51,19 +51,23 @@ def step(device, begin, t_range=(0, 100), stride=1):
 
     t0, tm = t_range
 
-    f = prep(begin[0 + t0, 2:3])
-    v = prep(begin[0 + t0, 3:5])
+    f = prep(begin[t0-1, 2:3])
+    v = prep(begin[t0-1, 3:5])
     v = torch.cat([v[:, 1:2], v[:, 0:1]], 1)
-    p = prep(begin[0 + t0, 5:6])
+    p = prep(begin[t0-1, 5:6])
 
     df_dx, df_dy = ns_step.diff(f, dx)
     dv_dx, dv_dy = ns_step.diff(v, dx)
 
     for t in torch.arange(*t_range, stride):
-        for i in range(5):
+        for i in range(25):
             v, dv_dx, dv_dy = ns_step.update_velocity(v, dv_dx, dv_dy, p, dt, dx)
-            # v = ns_step.vorticity_confinement(v, 3.0, dt, dx)
+            v = ns_step.vorticity_confinement(v, 3.0, dt, dx)
             p = ns_step.update_pressure(p, v, dt, dx)
+
+            v = prep(begin[0 + t + i, 3:5])
+            v = torch.cat([v[:, 1:2], v[:, 0:1]], 1)
+
             f, df_dx, df_dy = ns_step.update_density(f, df_dx, df_dy, v, dt, dx)
             dfx, dfy = ns_step.diff(f, dx)
 
@@ -83,7 +87,7 @@ if __name__ == '__main__':
 
     from netCDF4 import Dataset
 
-    data = Dataset('/data1/DATA_PUBLIC/40000-25-400-200.nc')
+    data = Dataset('/data1/DATA_PUBLIC/40000-25-400-200.nc')  # -test-re-10000000
     print(data.description)
     data = data['data']
 

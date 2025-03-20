@@ -88,29 +88,26 @@ static __global__ void update_vorticity_kernel(
     int y = blockIdx.y;
     int loc = batch + y * gridDim.x + x;
 
-    scalar_t vort_val = diff_xv(field, x, y, dx).y - diff_yv(field, x, y, dx).x;
-    vort[loc] = vort_val;
+    vort[loc] = diff_xv(field, x, y, dx).y - diff_yv(field, x, y, dx).x;
 }
 
 template <typename scalar_t>
 static __global__ void update_vort_confinement_kernel(
     scalar_t* confinement,
     const scalar_t* vort,
-    const scalar_t* dv_dx,
-    const scalar_t* dv_dy
+    const scalar_t* dabs_dx,
+    const scalar_t* dabs_dy
 ) {
     int x = blockIdx.x;
     int y = blockIdx.y;
 
-    scalar_t dx_val = get(dv_dx, x, y);
-    scalar_t dy_val = get(dv_dy, x, y);
+    scalar_t dx_val = get(dabs_dx, x, y);
+    scalar_t dy_val = get(dabs_dy, x, y);
     scalar_t len = sqrtf(dx_val*dx_val + dy_val*dy_val);
+    scalar_t vort_val = get(vort, x, y);
 
     vector<scalar_t> grad{dy_val, -dx_val};
-    grad = grad / len;
-
-    vector<scalar_t> vort_val = get_v(vort, x, y);
-    vector<scalar_t> conf = grad * vort_val;
+    vector<scalar_t> conf = grad / len * vort_val;
 
     set_v(confinement, conf.clamp(-1.0, 1.0), x, y);
 }
@@ -256,20 +253,14 @@ static __global__ void velocity_non_advect_kernel(
     const scalar_t* pres_dy,
     float dt
 ){
-    int batch0 = threadIdx.x * gridDim.x * gridDim.y * 2;
-    int batch1 = threadIdx.x * gridDim.x * gridDim.y * 2 + gridDim.x * gridDim.y;
     int x = blockIdx.x;
     int y = blockIdx.y;
 
     vector<scalar_t> vel = get_v(vel_c, x, y);
+    scalar_t dp_dx = get(pres_dx, x, y);
+    scalar_t dp_dy = get(pres_dy, x, y);
 
-    if(blockIdx.z%2==0){
-        int loc = batch0 + y * gridDim.x + x;
-        vel_n[loc] = vel.x - get(pres_dx, x, y)*dt;
-    }else{
-        int loc = batch1 + y * gridDim.x + x;
-        vel_n[loc] = vel.y - get(pres_dy, x, y)*dt;
-    }
+    set_v(vel_n, vel - vector<scalar_t>{dp_dx, dp_dy} * dt, x, y);
 }
 
 template <typename scalar_t>
@@ -318,9 +309,9 @@ void update_gradient_op(
 
     int b = df_dx.size(0);
     int c = df_dx.size(1);
-    int h = df_dx.size(2);
-    int w = df_dx.size(3);
-    dim3 block_size(h, w, 2);
+    int w = df_dx.size(2);
+    int h = df_dx.size(3);
+    dim3 block_size(w, h, 2);
 
     if(c == 1)
     {
@@ -355,9 +346,9 @@ void update_laplacian_op(
 
     int b = field.size(0);
     int c = field.size(1);
-    int h = field.size(2);
-    int w = field.size(3);
-    dim3 block_size(h, w, 1);
+    int w = field.size(2);
+    int h = field.size(3);
+    dim3 block_size(w, h, 1);
 
     if(c == 1)
     {
@@ -389,9 +380,9 @@ void update_vorticity_op(
     cudaStream_t stream = at::cuda::getCurrentCUDAStream(curDevice);
 
     int b = vort.size(0);
-    int h = vort.size(2);
-    int w = vort.size(3);
-    dim3 block_size(h, w, 1);
+    int w = vort.size(2);
+    int h = vort.size(3);
+    dim3 block_size(w, h, 1);
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(vort.scalar_type(), "update_vorticity_kernel", [&] {
         update_vorticity_kernel<scalar_t><<<block_size, b, 0, stream>>>(
@@ -418,9 +409,9 @@ void update_density_op(
     cudaStream_t stream = at::cuda::getCurrentCUDAStream(curDevice);
 
     int b = dens_c.size(0);
-    int h = dens_c.size(2);
-    int w = dens_c.size(3);
-    dim3 block_size(h, w, 1);
+    int w = dens_c.size(2);
+    int h = dens_c.size(3);
+    dim3 block_size(w, h, 1);
 
     switch(method){
     case 0:
@@ -465,9 +456,9 @@ void update_velocity_non_advec_op(
     cudaStream_t stream = at::cuda::getCurrentCUDAStream(curDevice);
 
     int b = vel_c.size(0);
-    int h = vel_c.size(2);
-    int w = vel_c.size(3);
-    dim3 block_size(h, w, 2);
+    int w = vel_c.size(2);
+    int h = vel_c.size(3);
+    dim3 block_size(w, h, 1);
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(vel_c.scalar_type(), "velocity_non_advect_kernel", [&] {
     velocity_non_advect_kernel<scalar_t><<<block_size, b, 0, stream>>>(
@@ -495,9 +486,9 @@ void update_velocity_op(
     cudaStream_t stream = at::cuda::getCurrentCUDAStream(curDevice);
 
     int b = vel_c.size(0);
-    int h = vel_c.size(2);
-    int w = vel_c.size(3);
-    dim3 block_size(h, w, 1);
+    int w = vel_c.size(2);
+    int h = vel_c.size(3);
+    dim3 block_size(w, h, 1);
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(vel_c.scalar_type(), "cip_advect_vec_kernel", [&] {
     cip_advect_vec_kernel<scalar_t><<<block_size, b, 0, stream>>>(
@@ -527,9 +518,9 @@ void update_confinement_op(
     cudaStream_t stream = at::cuda::getCurrentCUDAStream(curDevice);
 
     int b = vort.size(0);
-    int h = vort.size(2);
-    int w = vort.size(3);
-    dim3 block_size(h, w, 1);
+    int w = vort.size(2);
+    int h = vort.size(3);
+    dim3 block_size(w, h, 1);
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(vort.scalar_type(), "update_vort_confinement_kernel", [&] {
     update_vort_confinement_kernel<scalar_t><<<block_size, b, 0, stream>>>(
@@ -553,9 +544,9 @@ void update_pressure_op(
     cudaStream_t stream = at::cuda::getCurrentCUDAStream(curDevice);
 
     int b = pres_c.size(0);
-    int h = pres_c.size(2);
-    int w = pres_c.size(3);
-    dim3 block_size(h, w, 1);
+    int w = pres_c.size(2);
+    int h = pres_c.size(3);
+    dim3 block_size(w, h, 1);
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(pres_c.scalar_type(), "pressure_update_kernel", [&] {
     pressure_update_kernel<scalar_t><<<block_size, b, 0, stream>>>(

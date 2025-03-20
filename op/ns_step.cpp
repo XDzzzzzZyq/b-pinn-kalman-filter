@@ -109,24 +109,24 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> update_density(
                       vel_c,
                       dt, dx, 0);
 
-    return {dens_n, df_dx_n, df_dy_n};
+    return {dens_a, df_dx_a, df_dy_a};
 }
 
 torch::Tensor calc_vort_confinement(const torch::Tensor& vel_c, float dx) {
     CHECK_CUDA(vel_c);
 
     int B = vel_c.size(0);
-    int H = vel_c.size(2);
-    int W = vel_c.size(3);
+    int W = vel_c.size(2);
+    int H = vel_c.size(3);
     torch::Tensor vort = torch::empty({B, 1, H, W}).to(vel_c.device());
     update_vorticity_op(vort, vel_c, dx);
 
-    torch::Tensor dv_dx = torch::empty_like(vort);
-    torch::Tensor dv_dy = torch::empty_like(vort);
-    update_gradient_op(dv_dx, dv_dy, torch::abs(vort), dx);
+    torch::Tensor dabs_dx = torch::empty_like(vort);
+    torch::Tensor dabs_dy = torch::empty_like(vort);
+    update_gradient_op(dabs_dx, dabs_dy, torch::abs(vort), dx);
 
     torch::Tensor confinement = torch::empty_like(vel_c);
-    update_confinement_op(confinement, vort, dv_dx, dv_dy);
+    update_confinement_op(confinement, vort, dabs_dx, dabs_dy);
 
     return confinement;
 }

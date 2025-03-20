@@ -25,9 +25,10 @@ def update_velocity(vel, dv_dx, dv_dy, pres, dt, dx):
     vel_n = ns_step_forward.update_velocity(vel, dv_dx, dv_dy, pres, dt, dx)
     return vel_n
 
-def update_pressure(pres, vel, dt, dx):
-    pres_n = ns_step_forward.update_pressure(pres, vel, dt, dx)
-    return pres_n
+def update_pressure(pres, vel, dt, dx, step=2):
+    for _ in range(step):
+        pres = ns_step_forward.update_pressure(pres, vel, dt, dx)
+    return pres
 
 def vorticity_confinement(vel, weight, dt, dx):
     confinement = ns_step_forward.calc_vort_confinement(vel, dx)

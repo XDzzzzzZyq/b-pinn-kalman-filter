@@ -76,7 +76,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> update_density(
     const torch::Tensor df_dx,
     const torch::Tensor df_dy,
     const torch::Tensor& vel_c,
-    float dt, float dx
+    float dt, float dx, float Re
 ) {
     CHECK_CUDA(dens_c);
     CHECK_CUDA(df_dx);
@@ -87,7 +87,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> update_density(
     // Non advect
     torch::Tensor lapla = torch::empty_like(dens_c);
     update_laplacian_op(lapla, dens_c, dx);
-    torch::Tensor dens_n = dens_c + lapla / 10000000.0 * dt;
+    torch::Tensor dens_n = dens_c + lapla / Re * dt;
 
     // Non advection gradient
     torch::Tensor _df_dx_c = torch::empty_like(dens_c);
@@ -136,7 +136,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> update_velocity(
     const torch::Tensor& dv_dx,
     const torch::Tensor& dv_dy,
     const torch::Tensor& pres_c,
-    float dt, float dx)
+    float dt, float dx, float Re)
 {
     CHECK_CUDA(vel_c);
     CHECK_CUDA(pres_c);
@@ -152,7 +152,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> update_velocity(
 
     torch::Tensor lapla = torch::empty_like(vel_c);
     update_laplacian_op(lapla, vel_c, dx);
-    vel_n = vel_n + lapla / 10000000.0 * dt;
+    vel_n = vel_n + lapla / Re * dt;
 
     // Non advection gradient
     torch::Tensor _dv_dx_c = torch::empty_like(vel_c);

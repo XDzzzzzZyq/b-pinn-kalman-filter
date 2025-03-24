@@ -62,12 +62,8 @@ def step(device, begin, t_range=(0, 100), stride=1):
     for t in torch.arange(*t_range, stride):
         for i in range(25):
             v, dv_dx, dv_dy = ns_step.update_velocity(v, dv_dx, dv_dy, p, dt, dx)
-            v = ns_step.vorticity_confinement(v, 3.0, dt, dx)
+            v = ns_step.vorticity_confinement(v, 1.0, dt, dx)
             p = ns_step.update_pressure(p, v, dt, dx)
-
-            v = prep(begin[0 + t + i, 3:5])
-            v = torch.cat([v[:, 1:2], v[:, 0:1]], 1)
-
             f, df_dx, df_dy = ns_step.update_density(f, df_dx, df_dy, v, dt, dx)
             dfx, dfy = ns_step.diff(f, dx)
 

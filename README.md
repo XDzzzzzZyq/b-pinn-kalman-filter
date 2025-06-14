@@ -5,7 +5,7 @@ The first stage **Bayesian Physics-Informed Neural Network (B-PINN)** will infer
 This repository is based on the code from the paper **Score-Based Generative Modeling through Stochastic Differential Equations**.
 
 <div align="center">
-  <img src="assets/myplot19.png" alt="Operator represent" width="50%">
+  <img src="assets/myplot19.png" alt="Operator represent">
 </div> 
 <div align="center">
   <img src="assets/myplot30.png" alt="Denoising">

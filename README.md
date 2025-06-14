@@ -2,9 +2,14 @@
 B-PINN-Kalman filter is a deep learning model aiming to address the general **Inverse Problem (IP)** by leveraging physical prior knowledge and probabilistic formulation. 
 The first stage **Bayesian Physics-Informed Neural Network (B-PINN)** will infer the velocity and pressure field, and the corresponding uncertainty, based on the previous observations $x_i, x_{i-1}$. Then, a Kalman Filter (KF) will leverage the model prediction and the physical prediction from the previous step. This final output will be the denoised hidden state $$y_i$$. 
 
-This repository is based on the code from the paper **Score-Based Generative Modeling through Stochastic Differential Equations**
+This repository is based on the code from the paper **Score-Based Generative Modeling through Stochastic Differential Equations**.
 
-
+<div align="center">
+  <img src="assets/myplot19.png" alt="Operator represent" width="50%">
+</div> 
+<div align="center">
+  <img src="assets/myplot30.png" alt="Denoising">
+</div>
 
 ## How to run the code
 
